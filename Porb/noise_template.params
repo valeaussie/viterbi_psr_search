@@ -1,0 +1,18 @@
+name: System for a mock radio telescope
+observer: ldunn
+telescope: Parkes
+f1: 1000
+f2: 1010
+nchan: 4
+t0: 0
+t1: TOBS
+tsamp: 64e-6
+raj: 1.20979650937913
+decj: -0.824712241535847
+useAngle: 0
+gain: 2.8
+tsys: 18
+nbits: 8
+imjd: 58456
+smjd: 36400
+levelset: 1

@@ -1,0 +1,9 @@
+out*/
+test_out/
+.ipynb_checkpoints/
+datasets/
+no_padding/
+*.png
+*.out
+logs/
+__pycache__/
