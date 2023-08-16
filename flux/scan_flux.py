@@ -4,7 +4,7 @@ import subprocess
 import numpy as np
 from generate_data import generate_data, clean_data
 
-process_script = "/fred/oz002/ldunn/viterbi_psr_search/simulatesearch_test/python_test/process_timeseries_het.py"
+process_script = "/fred/oz002/ldunn/viterbi_psr_search/paper/code/process_timeseries_het.py"
 noise_script = "/fred/oz002/ldunn/viterbi_psr_search/simulatesearch_test/python_test/do_noise.py"
 
 noise_params = {"tobs": 7200}
