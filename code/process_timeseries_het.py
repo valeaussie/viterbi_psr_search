@@ -52,6 +52,7 @@ if __name__ == '__main__':
     parser.add_argument('--plot-path', help="Overplot best Viterbi path on spectrogram plot", action='store_true')
     parser.add_argument('--no-plot-path', help="Do not overplot best Viterbi path on spectrogram plot", action='store_false', dest='plot_path')
     parser.add_argument('--out_prefix', type=str, help="Prefix for output files", default="search")
+    parser.add_argument('--top_paths', type=int, help="Save the top N paths and log likelihoods to {out_prefix}paths.dat", required=False, default=1)
     parser.add_argument('--save-delta', action='store_true', dest='save_delta')
 
     args = parser.parse_args()
@@ -99,6 +100,12 @@ if __name__ == '__main__':
 
     if args.save_delta:
         np.savetxt(f"{args.out_prefix}_delta.dat", delta)
+
+    top_n_delta_idxs = np.argsort(delta[:, -1])[-args.top_paths:]
+    with open(f"{args.out_prefix}_paths.dat", "w") as f:
+        for idx in top_n_delta_idxs:
+            path = " ".join([str(x) for x in f0 + fs[backtrace(backptrs, idx)]])
+            print(f"{delta[idx, -1]} {path}", file=f)
 
     path = f0 + fs[backtrace(backptrs, np.argmax(delta[:, -1]))]
     print(path)
