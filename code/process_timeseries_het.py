@@ -54,6 +54,7 @@ if __name__ == '__main__':
     parser.add_argument('--out_prefix', type=str, help="Prefix for output files", default="search")
     parser.add_argument('--top_paths', type=int, help="Save the top N paths and log likelihoods to {out_prefix}paths.dat", required=False, default=1)
     parser.add_argument('--save-delta', action='store_true', dest='save_delta')
+    parser.add_argument('--num-harm', type=int, help="Number of harmonics to sum incoherently [default=1]", default=1)
 
     args = parser.parse_args()
     
@@ -83,10 +84,16 @@ if __name__ == '__main__':
 
     _, fs = compute_sft(downsample_data, downsample_tsamp, Tsft, f0, bw, padding_factor=args.padding_factor)
     spec = np.zeros((len(fs), Nsft), dtype=np.float)
-
+    unsummed_spec = np.zeros((len(fs), args.num_harm), dtype=np.float)
     for i in range(0, Nsft):
         print(f"Doing timestep {i+1} of {Nsft}")
-        spec[:, i], fs = np.abs(compute_sft(downsample_data, downsample_tsamp, Tsft, f0, bw, offset=int(i*Tsft/downsample_tsamp), padding_factor=args.padding_factor))
+        for harm in range(1, args.num_harm+1):
+            harm_spec, _ = np.abs(compute_sft(downsample_data, downsample_tsamp, Tsft, f0*harm, bw*harm, offset=int(i*Tsft/downsample_tsamp), padding_factor=args.padding_factor))
+            harm_spec = harm_spec[:harm*len(fs)]
+            avgd_harm_spec = np.mean(harm_spec.reshape((-1, harm)), axis=1)
+            unsummed_spec[:, harm-1] = avgd_harm_spec
+        spec[:, i] = np.sum(unsummed_spec, axis=1)
+        #spec[:, i], fs = np.abs(compute_sft(downsample_data, downsample_tsamp, Tsft, f0, bw, offset=int(i*Tsft/downsample_tsamp), padding_factor=args.padding_factor))
         #spec[:, i], fs = compute_sft(data, tsamp, Tsft, f0, bw, offset=int(i*Tsft/tsamp))
         #second_harm, _ = np.abs(compute_sft(downsample_data, downsample_tsamp, Tsft, 2*f0, 2*bw, offset=int(i*Tsft/downsample_tsamp)))
         #spec[:, i] += second_harm[:2*len(fs):2]
