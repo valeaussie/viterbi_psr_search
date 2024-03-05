@@ -20,7 +20,7 @@ def compute_sft(data, tsamp, Tsft, fh, bw, offset=0, padding_factor=1):
 
     het_data = het_ts * data_to_sft
 
-    new_tsamp = 0.5/bw
+    new_tsamp = 1./bw
     decim_factor = int(new_tsamp/tsamp)
     new_tsamp = tsamp*decim_factor
 
@@ -34,8 +34,8 @@ def compute_sft(data, tsamp, Tsft, fh, bw, offset=0, padding_factor=1):
 
     norm = np.var(het_decim_data)*len(het_decim_data)
     
-    fs = np.linspace(0, 1/2./new_tsamp, len(het_decim_data)//2)
-    return 1/norm*np.abs(fft.fftshift(het_data_fft)[len(het_decim_data)//2:])**2, fs
+    fs = np.linspace(-bw/2, bw/2, len(het_decim_data))
+    return 1/norm*np.abs(fft.fftshift(het_data_fft))**2, fs
 
 if __name__ == '__main__':
     
@@ -82,13 +82,13 @@ if __name__ == '__main__':
     bw = args.bw
     f0 = args.f0
 
-    _, fs = compute_sft(downsample_data, downsample_tsamp, Tsft, f0, bw, padding_factor=args.padding_factor)
+    _, fs = compute_sft(downsample_data, downsample_tsamp, Tsft, f0 + bw/2., bw, padding_factor=args.padding_factor)
     spec = np.zeros((len(fs), Nsft), dtype=np.float)
     unsummed_spec = np.zeros((len(fs), args.num_harm), dtype=np.float)
     for i in range(0, Nsft):
         print(f"Doing timestep {i+1} of {Nsft}")
         for harm in range(1, args.num_harm+1):
-            harm_spec, _ = np.abs(compute_sft(downsample_data, downsample_tsamp, Tsft, f0*harm, bw*harm, offset=int(i*Tsft/downsample_tsamp), padding_factor=args.padding_factor))
+            harm_spec, _ = np.abs(compute_sft(downsample_data, downsample_tsamp, Tsft, (f0 + bw/2)*harm, bw*harm, offset=int(i*Tsft/downsample_tsamp), padding_factor=args.padding_factor))
             harm_spec = harm_spec[:harm*len(fs)]
             avgd_harm_spec = np.mean(harm_spec.reshape((-1, harm)), axis=1)
             unsummed_spec[:, harm-1] = avgd_harm_spec
@@ -111,10 +111,11 @@ if __name__ == '__main__':
     top_n_delta_idxs = np.argsort(delta[:, -1])[-args.top_paths:]
     with open(f"{args.out_prefix}_paths.dat", "w") as f:
         for idx in top_n_delta_idxs:
-            path = " ".join([str(x) for x in f0 + fs[backtrace(backptrs, idx)]])
+            path = " ".join([str(x) for x in f0 + bw/2 + fs[backtrace(backptrs, idx)]])
             print(f"{delta[idx, -1]} {path}", file=f)
 
-    path = f0 + fs[backtrace(backptrs, np.argmax(delta[:, -1]))]
+    path = f0 + bw/2 + fs[backtrace(backptrs, np.argmax(delta[:, -1]))]
+    path = f0 + bw/2 + fs[backtrace(backptrs, np.argmax(delta[:, -1]))]
     print(path)
     print(args.plot_path)
     if args.plot_path:
@@ -129,7 +130,7 @@ if __name__ == '__main__':
 
     plt.xlabel('Frequency (Hz)')
     plt.ylabel('Log likelihood')
-    plt.plot(f0+fs, delta[:, -1])
+    plt.plot(f0+bw/2+fs, delta[:, -1])
     plt.savefig(f'{args.out_prefix}_loglikes.png', dpi=600)
     #print(f"Score: {(np.max(delta[:, -1]) - np.mean(delta[:, -1]))/np.std(delta[:, -1])}")
     print(f"Loglike: {np.max(delta[:, -1])}")
