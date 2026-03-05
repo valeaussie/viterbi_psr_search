@@ -1,0 +1,12 @@
+infile = "/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/exp_01_first_test/data/J0000-00_cfbf00000_Plan1_1_DM85.00.dat"
+tsamp = 6.4e-5
+Tsft = 440
+Nsft = 16
+f0 = 150
+bw = 50
+padding_factor = 1
+out_prefix = "exp_01_first_test"
+plot_path = True
+top_paths = 1
+save_delta = False
+num_harm = 1
