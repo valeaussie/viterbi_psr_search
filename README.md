@@ -10,7 +10,7 @@ The method combines:
 - The **Viterbi algorithm** to recover the most likely frequency evolution  
 - A **matched filtering approach** (Schuster periodogram) for per-segment detection  
 
-This approach is designed to handle strong Doppler modulation caused by short orbital period binaries.
+This approach is designed to handle Doppler modulations caused by short orbital period binaries.
 
 ---
 
@@ -74,7 +74,7 @@ This allows semi-coherent (coherent in chunks, incoherently combined between chu
 Recommended:
 
 You will have your environment
-source /fred/oz022/$USER/software/envrmnts/setup_viterbi_psr.sh
+source setup_your_env.sh
 
 ```bash
 pip install numpy scipy matplotlib

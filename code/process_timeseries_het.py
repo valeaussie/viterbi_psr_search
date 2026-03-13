@@ -11,6 +11,70 @@ import ast
 import os
 from viterbi import viterbi,backtrace
 
+
+"""
+process_timeseries_het.py
+
+This script performs a Viterbi-based search for a drifting narrowband signal
+(e.g. a pulsar or continuous-wave signal) in a time-series dataset, using a
+heteroscedastic (time-varying noise) spectrogram statistic.
+
+The pipeline operates as follows:
+
+    1. Load a time-domain signal from a binary file.
+    2. Divide the time series into segments of length Tsft.
+    3. For each segment, compute a Short Fourier Transform (SFT) in a specified
+       frequency band, using heterodyning and optional resampling/decimation.
+    4. Assemble these per-segment spectra into a time–frequency spectrogram.
+    5. Apply a heteroscedastic normalisation / likelihood construction so that
+       each timestep is weighted by its local noise properties (i.e. the noise
+       variance may change with time).
+    6. Apply the Viterbi algorithm to identify the most likely frequency path
+       through the resulting (noise-weighted) spectrogram.
+
+The Viterbi algorithm identifies the track that maximises the accumulated
+log-likelihood across time, allowing detection of signals whose frequency
+evolves slowly over time.
+
+Inputs
+------
+The script accepts parameters either via command-line arguments or through
+a parameter file using the --params option.
+
+Required parameters include:
+
+    infile : path to binary time-series file (float32 samples)
+    tsamp  : sampling interval of the time series (seconds)
+    Tsft   : duration of each SFT segment (seconds)
+    f0     : lower bound of the frequency band to search (Hz)
+    bw     : bandwidth of the search region (Hz)
+
+Optional parameters control harmonic handling, padding/resolution, plotting,
+and output behaviour.
+
+Outputs
+-------
+The script produces:
+
+    1. A spectrogram image showing the heteroscedastic statistic vs time and
+       frequency (<out_prefix>_spectrogram.png)
+
+    2. A plot of the final Viterbi log-likelihood distribution across frequency
+       bins (<out_prefix>_loglikes.png)
+
+Optionally it can also save intermediate / diagnostic arrays (e.g. delta),
+depending on runtime flags.
+
+Notes
+-----
+This implementation explicitly accounts for heteroscedastic noise, meaning the
+noise variance is allowed to change with time (and potentially across the
+searched band). This reduces false structure from variable noise and improves
+path scoring compared to a homoscedastic (constant-variance) assumption.
+"""
+
+
+
 def _load_params_file(path: str) -> dict:
     """
     Load key=value params file into a dict, converting types when possible.
