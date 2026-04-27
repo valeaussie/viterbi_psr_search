@@ -14,13 +14,17 @@ __pycache__/
 data/
 *.dat
 results/
-# Ignore experiment outputs only
-code/experiments/*/results/
-
-# Ignore large data files
-code/experiments/*/data/*.dat
 
 # Python cache
 __pycache__/
 *.pyc
 playaround/
+
+Porb/
+sample_dataset/
+scalloping/
+flux/
+harmonics/
+process_timeseries.py
+ached do_noise.py 
+
