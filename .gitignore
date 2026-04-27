@@ -12,12 +12,15 @@ test/
 logs/
 __pycache__/
 data/
+*.dat
+results/
 # Ignore experiment outputs only
-experiments/*/results/
+code/experiments/*/results/
 
 # Ignore large data files
-experiments/*/data/*.dat
+code/experiments/*/data/*.dat
 
 # Python cache
 __pycache__/
 *.pyc
+playaround/

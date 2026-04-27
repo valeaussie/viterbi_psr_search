@@ -5,11 +5,13 @@ import sys
 import matplotlib.pyplot as plt
 import scipy.signal as sig
 import scipy.fftpack as fft
+from scipy.optimize import curve_fit
 import argparse
 import configparser
 import ast
 import os
 from viterbi import viterbi,backtrace
+
 
 
 """
@@ -228,6 +230,139 @@ if __name__ == '__main__':
     path = f0 + bw/2 + fs[backtrace(backptrs, np.argmax(delta[:, -1]))]
     print(path)
     print(args.plot_path)
+
+
+
+
+
+
+    # ###### Fit a quadratic to the best path to extract f0, f1, f2 at the reference time tref (middle of the track)
+    # t = Tsft/2. + np.arange(Nsft)*Tsft
+    # path = f0 + bw/2 + fs[backtrace(backptrs, np.argmax(delta[:, -1]))]
+
+    # # choose reference index (middle)
+    # imid = len(path)//2
+    # tref = t[imid]
+
+    # # take a small window around tref (e.g. ±5 points)
+    # w = 5
+    # ilo = max(0, imid - w)
+    # ihi = min(len(path), imid + w + 1)
+
+    # t_win = t[ilo:ihi]
+    # f_win = path[ilo:ihi]
+
+    # # shift time to tref
+    # x = t_win - tref
+
+    # # quadratic fit in local window
+    # c2, c1, c0 = np.polyfit(x, f_win, 2)
+
+    # f0_fit = c0
+    # f1_fit = c1
+    # f2_fit = 2*c2
+
+    # print(f"Recovered f0 at tref={tref:.3f} s: {f0_fit:.12f} Hz")
+    # print(f"Recovered f1: {f1_fit:.12e} Hz/s")
+    # print(f"Recovered f2: {f2_fit:.12e} Hz/s^2")
+
+    # # save full track
+    # np.savetxt(
+    #     f"{args.out_prefix}_track.dat",
+    #     np.column_stack([t, path]),
+    #     header="time_s frequency_hz"
+    # )
+
+    ###### Fit a sinusoid to the best path and extract local f0, f1, f2 at tref
+    t = Tsft/2. + np.arange(Nsft) * Tsft
+    path = f0 + bw/2 + fs[backtrace(backptrs, np.argmax(delta[:, -1]))]
+
+    # choose reference time (middle of the track)
+    imid = len(path) // 2
+    tref = t[imid]
+
+    # define sinusoidal model around tref
+    def sin_model(t, fmean, amp, omega, phi):
+        x = t - tref
+        return fmean + amp * np.sin(omega * x + phi)
+
+    # initial guesses
+    fmean_guess = np.mean(path)
+    amp_guess = 0.5 * (np.max(path) - np.min(path))
+
+    # crude guess for angular frequency from one cycle over the observation
+    Tobs = t[-1] - t[0] + Tsft
+    omega_guess = 2.0 * np.pi / max(Tobs, Tsft)
+    phi_guess = 0.0
+
+    p0 = [fmean_guess, amp_guess, omega_guess, phi_guess]
+
+    # bounds: positive amplitude, positive omega
+    bounds = (
+        [fmean_guess - 1.0, 0.0, 0.0, -2.0*np.pi],
+        [fmean_guess + 1.0, 1.0, 1.0,  2.0*np.pi]
+    )
+
+    # fit
+    popt, pcov = curve_fit(
+        sin_model,
+        t,
+        path,
+        p0=p0,
+        bounds=bounds,
+        maxfev=50000
+    )
+
+    fmean_fit, amp_fit, omega_fit, phi_fit = popt
+
+    # evaluate local polynomial coefficients at tref
+    # f(t) = f0 + f1*(t-tref) + 0.5*f2*(t-tref)^2 + ...
+    f0_fit = fmean_fit + amp_fit * np.sin(phi_fit)
+    f1_fit = amp_fit * omega_fit * np.cos(phi_fit)
+    f2_fit = -amp_fit * omega_fit**2 * np.sin(phi_fit)
+
+    # optional: fitted period of the sinusoid
+    if omega_fit > 0:
+        period_fit = 2.0 * np.pi / omega_fit
+    else:
+        period_fit = np.nan
+
+    print(f"Recovered f0 at tref={tref:.3f} s: {f0_fit:.12f} Hz")
+    print(f"Recovered f1: {f1_fit:.12e} Hz/s")
+    print(f"Recovered f2: {f2_fit:.12e} Hz/s^2")
+    print(f"Recovered sinusoid mean frequency: {fmean_fit:.12f} Hz")
+    print(f"Recovered sinusoid amplitude: {amp_fit:.12e} Hz")
+    print(f"Recovered sinusoid angular frequency: {omega_fit:.12e} rad/s")
+    print(f"Recovered sinusoid period: {period_fit:.6f} s")
+    print(f"Recovered sinusoid phase: {phi_fit:.12f} rad")
+
+    # save fit parameters
+    with open(f"{args.out_prefix}_sinusoid_fit.dat", "w") as f:
+        f.write(f"tref_s {tref:.12f}\n")
+        f.write(f"f0_at_tref_hz {f0_fit:.15f}\n")
+        f.write(f"f1_at_tref_hz_per_s {f1_fit:.15e}\n")
+        f.write(f"f2_at_tref_hz_per_s2 {f2_fit:.15e}\n")
+        f.write(f"fmean_hz {fmean_fit:.15f}\n")
+        f.write(f"amplitude_hz {amp_fit:.15e}\n")
+        f.write(f"omega_rad_per_s {omega_fit:.15e}\n")
+        f.write(f"period_s {period_fit:.15f}\n")
+        f.write(f"phase_rad {phi_fit:.15f}\n")
+
+    # save full track plus fitted model
+    path_fit = sin_model(t, *popt)
+    np.savetxt(
+        f"{args.out_prefix}_track.dat",
+        np.column_stack([t, path, path_fit]),
+        header="time_s frequency_hz fitted_frequency_hz"
+    )
+
+
+
+
+
+
+
+
     if args.plot_path:
         plt.plot(Tsft/2. + np.asarray(range(Nsft))*Tsft, path, 'r', linewidth=2)
         
@@ -235,12 +370,12 @@ if __name__ == '__main__':
     plt.ylabel('Frequency (Hz)')
     if args.spec_flo is not None and args.spec_fhi is not None:
         plt.ylim(args.spec_flo, args.spec_fhi)
-    plt.savefig(f'{args.out_prefix}_spectrogram.png', dpi=600)
+    plt.savefig(f'{args.out_prefix}_spectrogram_4_harmonics.png', dpi=600, bbox_inches='tight')
     plt.clf()
 
     plt.xlabel('Frequency (Hz)')
     plt.ylabel('Log likelihood')
     plt.plot(f0+bw/2+fs, delta[:, -1])
-    plt.savefig(f'{args.out_prefix}_loglikes.png', dpi=600)
+    plt.savefig(f'{args.out_prefix}_loglikes_4_harmonics.png', dpi=600, bbox_inches='tight')
     #print(f"Score: {(np.max(delta[:, -1]) - np.mean(delta[:, -1]))/np.std(delta[:, -1])}")
     print(f"Loglike: {np.max(delta[:, -1])}")
