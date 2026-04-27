@@ -33,41 +33,11 @@ This allows semi-coherent (coherent in chunks, incoherently combined between chu
 - `code/viterbi.py`  
   Core HMM and Viterbi implementation.
 
-- `code/process_timeseries.py`  
-  Preprocessing and segmentation of time series data.
-
 - `code/process_timeseries_het.py`  
   Heterodyned time series processing.
 
 - `code/do_noise.py`  
   Noise generation and handling (for null test).
-
----
-
-### Simulation & Experiments
-
-- `generate_data.py` (multiple directories)  
-  Scripts to generate simulated pulsar signals.
-
-- `scan_*.py`  
-  Search pipelines for parameter scans.
-
-- `Porb/`  
-  Orbital period experiments.
-
-- `flux/`  
-  Flux sensitivity studies.
-
-- `harmonics/`  
-  Harmonic analysis experiments.
-
-- `scalloping/`  
-  Scalloping loss investigations.
-
-- `sample_datasets/`  
-  Example datasets for testing.
-
----
 
 ## Environment
 
