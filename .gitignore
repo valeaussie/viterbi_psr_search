@@ -18,10 +18,10 @@ old/
 old*
 results/
 slurm_output/
-jobs/
-code/(old)_process_timeseries_het.py
-code/(old)process_timeseries.py
-code/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1/
+stage*/
+provenance/
+config/
+*old*
 
 
 # Python cache
