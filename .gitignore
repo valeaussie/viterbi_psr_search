@@ -1,19 +1,28 @@
-out*/
-test_out/
 .ipynb_checkpoints/
 datasets/
 data/
+data/
+*.dat
 no_padding/
 pred.tim
 t2pred.dat
 test/
 *.out
-*.png
+out*/
+test_out/
+*.err
 logs/
-__pycache__/
-data/
-*.dat
+*.log
+*.png
+old/
+old*
 results/
+slurm_output/
+jobs/
+code/(old)_process_timeseries_het.py
+code/(old)process_timeseries.py
+code/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1/
+
 
 # Python cache
 __pycache__/
@@ -26,5 +35,6 @@ scalloping/
 flux/
 harmonics/
 process_timeseries.py
-ached do_noise.py 
+ached do_noise.py
+
 
