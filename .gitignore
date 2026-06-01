@@ -18,12 +18,13 @@ logs/
 *.png
 old/
 old*
+*old
 results/
 slurm_output/
 stage*/
 provenance/
 config/
-*old*
+*old
 Porb/
 sample_dataset/
 scalloping/
