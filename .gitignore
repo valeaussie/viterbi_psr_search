@@ -22,19 +22,16 @@ stage*/
 provenance/
 config/
 *old*
-
-
-# Python cache
-__pycache__/
-*.pyc
-playaround/
-
 Porb/
 sample_dataset/
 scalloping/
 flux/
 harmonics/
 process_timeseries.py
-ached do_noise.py
+
+
+# Python cache
+__pycache__/
+*.pyc
 
 
