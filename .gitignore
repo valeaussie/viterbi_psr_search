@@ -3,6 +3,8 @@ datasets/
 data/
 data/
 *.dat
+*.ar
+*.cands
 no_padding/
 pred.tim
 t2pred.dat
@@ -28,6 +30,8 @@ scalloping/
 flux/
 harmonics/
 process_timeseries.py
+candidate_gallery_base64.html
+candidate_gallery.html
 
 
 # Python cache
