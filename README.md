@@ -2,312 +2,386 @@
 
 ## Overview
 
-This repository implements a semi-coherent pulsar search algorithm designed to detect radio pulsars in compact binary systems.  
+This repository implements a semi-coherent blind search for radio pulsars in compact binary systems, based on a hidden Markov model (HMM) framework combined with the Viterbi algorithm.
 
-The method combines:
+The method models the time-varying apparent spin frequency of a pulsar as a hidden Markov chain. Each coherent segment of the dedispersed time series contributes a normalised Fourier power (Schuster periodogram) observation. The Viterbi algorithm then finds the most probable frequency track through the resulting time-frequency spectrogram, and a log-likelihood statistic is formed to assess significance.
 
-- A **Hidden Markov Model (HMM)** to model time-varying pulse frequency  
-- The **Viterbi algorithm** to recover the most likely frequency evolution  
-- A **matched filtering approach** (Schuster periodogram) for per-segment detection  
+This approach is designed to handle Doppler modulations from short-period binary companions, where the apparent spin frequency drifts by more than one frequency bin over the total observation, making standard FFT-based searches insensitive.
 
-This approach is designed to handle Doppler modulations caused by short orbital period binaries.
+The method is described in:
 
----
-
-## Method Summary
-
-1. The input time series is divided into short segments.
-2. A periodogram (matched filter) is computed for each segment.
-3. An HMM models how the pulsar frequency evolves between segments.
-4. The Viterbi algorithm finds the most probable frequency track.
-5. Detection statistics are computed from the recovered path.
-
-This allows semi-coherent (coherent in chunks, incoherently combined between chunks) detection of compact binary pulsars under realistic survey conditions.
+> O'Leary, Dunn & Melatos (2026), *Discovering pulsars in compact binaries with a hidden Markov model*, arXiv:2601.00500
 
 ---
 
 ## Repository Structure
 
-### Core Code
+```
+code/
+    viterbi.py                      # Core HMM and Viterbi algorithm
+    viterbi_pipeline.py             # Main search script (lean blind mode + full fit mode)
+    viterbi_search_and_fit.py       # Full Viterbi search + polynomial + Kepler fit
+    do_noise.py                     # Noise generation for null tests
+    experiments/
+        <experiment_name>/
+            jobs/                   # SLURM job scripts for each pipeline stage
+            data/                   # Input data and params files
+            <run_name>/             # Stage outputs (stage0_inspect/, stage1_clean/, ...)
+```
 
-- `code/viterbi.py`  
-  Core HMM and Viterbi implementation.
-
-- `code/process_timeseries_het.py`  
-  Heterodyned time series processing.
-
-- `code/do_noise.py`  
-  Noise generation and handling (for null test).
+---
 
 ## Environment
 
-Recommended:
+Activate your environment before running any stage:
 
-You will have your environment
+```bash
 source setup_your_env.sh
+```
+
+The Python dependencies are:
 
 ```bash
-pip install numpy scipy matplotlib
+pip install numpy scipy matplotlib sigpyproc psrqpy pyyaml
+```
 
-## Run code - From code/experiments/your_experiment
-Running a Search
+External tools required (installed and on `PATH` or via Apptainer/Singularity):
 
-From inside your experiment directory:
+- `filtool` (PulsarX, via Apptainer SIF)
+- `prepdata` (PRESTO)
+- `psrfold_fil` (PulsarX, via Apptainer SIF)
+- `psrstat` (PSRCHIVE)
 
-python ../../process_timeseries_het.py --params search.params
+---
 
+## Pipeline Overview
 
-You may override any parameter from the command line:
+The full pipeline runs in six stages. Each stage is implemented as a SLURM job script (or short Python script) inside `code/experiments/<experiment_name>/jobs/`. Stage outputs are written to a versioned experiment directory, e.g. `47Tuc_blind_search_v1/`.
 
-python ../../process_timeseries_het.py --params search.params --Nsft 32
-
-
-Command-line arguments override values in search.params.
-
-Required Parameters
-
-These must be provided in search.params (or via CLI):
-
-infile — Path to float32 .dat time series
-
-tsamp — Sampling interval (seconds)
-
-Tsft — Length of each coherent segment (seconds)
-
-f0 — Bottom of search frequency band (Hz)
-
-bw — Width of search frequency band (Hz)
-
-Optional Parameters
-
-Nsft (default: use full dataset)
-
-padding_factor (default: 1)
-
-num_harm (default: 1)
-
-top_paths (default: 1)
-
-out_prefix (default: "search")
-
-plot_path (True/False)
-
-save_delta (True/False)
-
-spec_flo, spec_fhi (plot limits)
-
-Example search.params
-infile = "data/yourfile.dat"
-tsamp = 6.4e-5
-Tsft = 440
-Nsft = 16
-f0 = 150
-bw = 50
-padding_factor = 1
-out_prefix = "exp_01_first_test"
-plot_path = True
-num_harm = 1
-
+```
+Stage 0    Inspect filterbank metadata, query ATNF catalogue
+Stage 1    RFI cleaning (filtool) + bandpass diagnostics
+Stage 2    Incoherent dedispersion (prepdata, barycentred and topocentric)
+Stage 3    Blind Viterbi sweep over subband and Tsft grid (lean mode)
+Stage 3a   Aggregate loglike curves, peak-find, deduplicate candidates
+Stage 3b   Full Viterbi search + polynomial + Kepler fit on each candidate
+Stage 4    Fold each candidate with psrfold_fil (polynomial and Kepler rows)
+Stage 5    Collate S/N from folded archives, produce ranked candidate CSV
 ```
 
 ---
 
-## End-to-End Search Pipeline (Real Data)
+## Stage 0: Inspect Filterbank
 
-This section describes how to run a full search on a real observation, starting from a `.fits` filterbank file and ending with a folded candidate plot. Replace `path/to/...` with the actual paths on your system.
+**Script:** `jobs/stage0_inspect.py`
 
-The pipeline has four stages:
-
-1. **Convert** SIGPROC/PSRFITS `.fits` to filterbank `.fil` (if needed).
-2. **Dedisperse** the filterbank at the trial DM(s) to produce a dedispersed time series.
-3. **Search** the dedispersed time series with the Viterbi HMM tracker.
-4. **Fold** the original `.fil` using the spin parameters (`f0`, `f1`, `f2`) recovered by the search.
-
-External tools required (installed and on `PATH`):
-
-- `digifil` (from DSPSR)
-- `dedisperse_all_fil` (from `sigpyproc` / your dedispersion package)
-- `psrfold_fil` (from PulsarX)
-- Python with `numpy`, `scipy`, `matplotlib` (for the Viterbi step)
-
----
-
-### Step 1: Convert `.fits` to `.fil`
+Reads the filterbank header using `sigpyproc`, computes derived quantities (Nyquist frequency, maximum coherent timescale per known binary), queries the ATNF pulsar catalogue for known pulsars at the target position, and writes observation metadata to YAML.
 
 ```bash
-digifil -threads 8 -b 8 -o path/to/output.fil path/to/input.fits
+python stage0_inspect.py \
+    --fil  path/to/observation.fil \
+    --exp-dir path/to/experiment_dir
 ```
 
-Flags:
+Use `--offline` on compute nodes without network access (skips the ATNF query).
 
-- `-threads 8` parallel threads.
-- `-b 8` output 8-bit samples.
-- `-o` output filename.
+**Outputs** (inside `<exp-dir>/`):
 
-**Note:** Record the start MJD of the observation from the `.fits` header (e.g. via `psrfits_dump` or `fitshead`). You will need it later to convert the search reference time to a `pepoch` for folding.
+```
+config/observation.yaml
+config/known_pulsars.yaml
+stage0_inspect/inspect.log
+stage0_inspect/header_raw.txt
+provenance/stage0_runinfo.txt
+```
 
 ---
 
-### Step 2: Dedisperse
+## Stage 1: RFI Cleaning
+
+**Scripts:** `jobs/stage1_filtool_only.sh`, `jobs/stage1b_bandpass.sh`, `jobs/stage1_clean_postprocess.py`
+
+Stage 1 runs `filtool` (PulsarX) inside an Apptainer container to clean RFI from the filterbank. Stage 1b then computes before/after bandpass diagnostics and writes RFI statistics to YAML.
 
 ```bash
-dedisperse_all_fil \
-    --dms 24.356441 \
-    --ddm 0.1 \
-    --ndm 1 \
-    --rfi kadaneF 8 4 zdot \
-    --fillPatch rand \
-    --format presto \
-    -v \
-    -f path/to/output.fil
+sbatch jobs/stage1_filtool_only.sh
+sbatch jobs/stage1b_bandpass.sh     # after stage1_filtool_only completes
 ```
 
-Flags:
+The RFI mitigation chain used in the 47 Tuc example is:
 
-- `--dms 24.356441` central trial DM in pc cm$^{-3}$.
-- `--ddm 0.1` step size between trial DMs.
-- `--ndm 1` number of trial DMs (set `--ndm 1` for a single DM, or larger for a small DM grid).
-- `--rfi kadaneF 8 4 zdot` RFI mitigation chain.
-- `--fillPatch rand` fill masked samples with random noise.
-- `--format presto` write PRESTO-format output (`.dat` plus `.inf` sidecar).
+```
+-z zdot kadaneF 8 4 kadaneT 8 4 zap 925 960 zap 1525 1612 zap 1675 1720 --fillPatch rand
+```
 
-This produces, for each trial DM, a 32-bit float dedispersed time series `output_DM<value>.dat` together with an `.inf` file that records the sampling interval `tsamp`, the start MJD, and the number of samples. Open the `.inf` file and note the value of `Width of each time series bin (sec)`. This is the `tsamp` you must pass to the Viterbi search.
+Adapt the zap ranges and algorithms to match your observing band and known RFI environment.
+
+**Outputs** (inside `stage1_clean/`):
+
+```
+<rootname>_01.fil          # Cleaned filterbank
+filtool.log
+bandpass.png               # Before/after bandpass comparison
+rfi_stats.yaml
+```
 
 ---
 
-### Step 3: Run the Viterbi Search
+## Stage 2: Dedispersion
 
-The Viterbi script reads a raw 32-bit float time series. The PRESTO `.dat` written by `dedisperse_all_fil` is exactly that, so it can be passed directly as `infile`.
+**Script:** `jobs/stage2_dedisp.sh`
 
-Set up an experiment directory and a parameter file:
+Runs PRESTO `prepdata` to produce a dedispersed time series at a single trial DM. Two versions are produced: barycentred (default) and topocentric (`-nobary`), allowing the effect of barycentring on the search to be compared.
+
+```bash
+sbatch jobs/stage2_dedisp.sh
+```
+
+Edit `DM` and `DM_TAG` in the script to match your target. The output `.inf` file records `tsamp`, the start MJD, and the number of real (non-padded) samples. **Read `tsamp` from the `.inf` file** and use it in all downstream stages.
+
+**Outputs** (inside `stage2_dedisp/<DM_TAG>_bary/` and `stage2_dedisp/<DM_TAG>_topo/`):
 
 ```
-code/experiments/example_run/
-    search.params
+<rootname>_bary.dat   +   <rootname>_bary.inf
+<rootname>_topo.dat   +   <rootname>_topo.inf
+```
+
+---
+
+## Stage 3: Blind Viterbi Sweep
+
+**Script:** `jobs/stage3_blind.sh`
+
+Runs `viterbi_pipeline.py` in `--lean` mode over a grid of frequency subbands and coherent timescales $T_\mathrm{sft}$. Each Slurm array task covers one (subband, $T_\mathrm{sft}$) pair. Lean mode saves only the log-likelihood-vs-frequency curve and the top path; it does not compute fits, produce plots, or write candfiles.
+
+The grid in the 47 Tuc example is:
+
+- Subbands: 100 to 800 Hz, width 10 Hz, step 9 Hz (1 Hz overlap between adjacent subbands).
+- $N_T$ grid: {16, 32, 64, 128, 256}, giving $T_\mathrm{sft} = T_\mathrm{obs} / N_T$.
+
+```bash
+sbatch jobs/stage3_blind.sh
+```
+
+The array size `--array=0-N` must equal `n_subbands * n_Tsft - 1`. Recompute if you change the grid.
+
+**Outputs** (inside `stage3_viterbi/blind_v1/Nt<N>/f0_<F>/`):
+
+```
+blind_Nt<N>_f0_<F>_loglike_curve.dat    # log-likelihood vs frequency
+blind_Nt<N>_f0_<F>_paths.dat            # top Viterbi path(s)
+blind_Nt<N>_f0_<F>.params               # parameter file used for this run
+```
+
+---
+
+## Stage 3a: Aggregate and Deduplicate Candidates
+
+**Script:** `jobs/aggregate_blind.py`
+
+This step is run manually (not as a SLURM job) after stage 3 completes. It scans all `*_loglike_curve.dat` files in the blind output tree, identifies peaks above a robust threshold (default: 8 MAD-sigma above the median), optionally cross-matches them against known pulsars, deduplicates peaks within a frequency tolerance across subbands and $N_T$ values, and writes a ranked candidate list.
+
+```bash
+python jobs/aggregate_blind.py \
+    --blind-dir  path/to/stage3_viterbi/blind_v1/ \
+    --known-yaml path/to/config/known_pulsars.yaml \
+    --out-csv    path/to/stage3_viterbi/blind_v1/candidates.csv \
+    --n-sigma    8.0 \
+    --dedup-tol-hz 0.5
+```
+
+**Outputs:**
+
+```
+candidates.csv        # All peaks above threshold, sorted by log-likelihood
+candidates_dedup.csv  # Deduplicated candidate list; input to stage 3b
+```
+
+Each row in `candidates_dedup.csv` records: `peak_freq_hz`, `peak_loglike`, `multiplicity` (number of raw peaks merged), `nt_values` (which $N_T$ values recovered the candidate), `Nt_best`, `subband_f0`, and `known_match`.
+
+---
+
+## Stage 3b: Full Viterbi Fit
+
+**Script:** `jobs/stage3b_fit.sh`
+
+Runs `viterbi_search_and_fit.py` on each deduplicated candidate. Each task re-runs the Viterbi search in a narrow 10 Hz window centred on the candidate frequency, then fits two independent models to the recovered path:
+
+- A polynomial Taylor expansion (default order 5, giving $f_0 \ldots f_5$) evaluated at the path midpoint.
+- A circular-orbit Kepler model (giving $f_\mathrm{spin}$, semi-amplitude $K$, orbital period $P_b$, and zero-crossing time $T_0$), from which Taylor coefficients are derived analytically.
+
+A classification flag (`binary` or `isolated`) is written based on whether the Kepler amplitude is significant relative to the frequency resolution.
+
+```bash
+sbatch jobs/stage3b_fit.sh
+```
+
+The array size `--array=0-N` must equal the number of rows in `candidates_dedup.csv` minus one.
+
+**Outputs** (inside `stage3_viterbi/candidates/cand_NNN/`):
+
+```
+cand_NNN.params
+cand_NNN_psrfold.candfile        # 6-column psrfold_fil input (poly row 0, Kepler row 1)
+cand_NNN_psrfold.candfile.info   # Sidecar: pepoch, F2, Keplerian parameters
+cand_NNN_fit_summary.dat         # Full fit results and classification
+cand_NNN_track.dat               # Viterbi path + polynomial fit + Kepler fit
+cand_NNN_spectrogram.png
+cand_NNN_loglikes.png
+```
+
+**Note on the candfile:** `psrfold_fil --candfile` accepts only the 6-column schema `(id, dm, acc, F0, F1, S/N)`. F2 and orbital parameters cannot be passed through the candfile. Read `--pepoch` and `--f2` values from the `.info` sidecar file when folding at stage 4.
+
+---
+
+## Stage 4: Fold Candidates
+
+**Script:** `jobs/stage4_fold.sh`
+
+Folds each candidate twice using `psrfold_fil` (PulsarX inside Apptainer): once using the polynomial fit parameters (row 0 of the candfile) and once using the Kepler-derived Taylor parameters (row 1). Each fold runs in its own subdirectory so that PulsarX auto-named output files do not overwrite each other.
+
+The `--pepoch` and `--f2` values for each row are read from the `.info` sidecar file produced by stage 3b.
+
+```bash
+sbatch jobs/stage4_fold.sh
+```
+
+The array size `--array=0-N` must equal the number of candidate directories in `stage3_viterbi/candidates/` minus one.
+
+**Outputs** (inside `stage4_fold/cand_NNN/`):
+
+```
+poly/
+    J0000-00_..._00001.ar      # Folded archive (polynomial fit)
+    J0000-00_..._00001.png
+    J0000-00_..._00001.cands
+kepler/
+    J0000-00_..._00001.ar      # Folded archive (Kepler fit)
+    J0000-00_..._00001.png
+    J0000-00_..._00001.cands
+```
+
+---
+
+## Stage 5: Collate S/N
+
+**Script:** `jobs/stage5_collate.sh`, `jobs/collate_fold_snr.py`
+
+Runs `psrstat` on all folded `.ar` files to extract S/N, cross-matches results against `candidates_dedup.csv`, selects the best fit (polynomial or Kepler) per candidate by S/N, and writes a ranked CSV.
+
+```bash
+sbatch jobs/stage5_collate.sh
+```
+
+**Output:**
+
+```
+stage4_fold/fold_snr_ranked.csv
+```
+
+Each row records: `cand_id`, `freq_hz`, `snr_best`, `best_fit` (poly or kepler), `snr_poly`, `snr_kepler`, `peak_loglike`, `multiplicity`, `nt_values`, and `known_match`.
+
+---
+
+## Running a Single-Target Search (Quick Start)
+
+If you have a dedispersed `.dat` file and want to run a single Viterbi search without the full pipeline infrastructure, use `viterbi_pipeline.py` directly:
+
+```bash
+python code/viterbi_pipeline.py --params search.params
 ```
 
 Example `search.params`:
 
 ```ini
-infile = "path/to/output_DM24.356441.dat"
-tsamp = 6.4e-5
-Tsft = 30
-Nsft = 64
-f0 = 370
-bw = 20
+infile         = "path/to/observation_DM24.36.dat"
+tsamp          = 7.656e-05
+Tsft           = 450
+Nsft           = -1
+f0             = 370.0
+bw             = 20.0
 padding_factor = 1
-num_harm = 1
-top_paths = 1
-out_prefix = "example_run"
-plot_path = True
+num_harm       = 1
+top_paths      = 1
+out_prefix     = "run_01"
+plot_path      = True
+dm             = 24.356441
+mjd_start      = 59391.125996527684
 ```
 
-Notes on parameter choices:
-
-- `tsamp` must match the `Width of each time series bin (sec)` in the `.inf` file produced by Step 2.
-- `Tsft` is the coherent segment length in seconds. It must be short enough that the signal frequency drift within one segment is much less than $1/T_\mathrm{sft}$. For a binary with orbital period $P_\mathrm{b}$, a common choice is $T_\mathrm{sft} \lesssim P_\mathrm{b}/30$.
-- `Nsft` $\times$ `Tsft` must not exceed the duration of the dedispersed time series. Set `Nsft = -1` (or omit it) to use the full dataset.
-- `f0` and `bw` define the search band. `f0` is the **lower** edge in Hz, and the searched band is $[f_0,\ f_0 + \mathrm{bw}]$.
-- `num_harm` controls incoherent harmonic summing. Set to $1$ for the fundamental only.
-
-Run the search from the experiment directory:
+Any parameter can be overridden from the command line:
 
 ```bash
-cd code/experiments/example_run
-python ../../process_timeseries_het.py --params search.params
+python code/viterbi_pipeline.py --params search.params --Tsft 225 --out_prefix run_02
 ```
 
-CLI flags override values in `search.params`, e.g.:
+Set `Nsft = -1` to use the full length of the time series. Set `--lean` to skip fits and plots (useful when running many subbands).
 
-```bash
-python ../../process_timeseries_het.py --params search.params --Nsft 32 --num-harm 2
-```
+### Key parameter choices
 
-Outputs (written to the current directory):
-
-- `example_run_spectrogram_4_harmonics.png` heteroscedastic spectrogram with the recovered Viterbi path overlaid (if `plot_path = True`).
-- `example_run_loglikes_4_harmonics.png` log-likelihood vs frequency at the final time step.
-- `example_run_paths.dat` top-N paths and their scores.
-- `example_run_track.dat` columns: `time_s`, `frequency_hz` (Viterbi path), `fitted_frequency_hz` (sinusoidal fit).
-- `example_run_sinusoid_fit.dat` the recovered spin parameters at the reference time `tref`. Key fields:
-  - `tref_s` reference time in seconds **from the start of the dedispersed time series**.
-  - `f0_at_tref_hz` spin frequency at `tref`.
-  - `f1_at_tref_hz_per_s` first frequency derivative at `tref`.
-  - `f2_at_tref_hz_per_s2` second frequency derivative at `tref`.
-
-The terminal will also print these values, e.g.:
-
-```
-Recovered f0 at tref=945.000 s: 378.327569311425 Hz
-Recovered f1: -1.624881583924e-06 Hz/s
-Recovered f2: -2.340076538380e-09 Hz/s^2
-```
+- `tsamp` must match the `Width of each time series bin (sec)` value in the PRESTO `.inf` file exactly. A mismatch will scale all recovered frequencies incorrectly.
+- `Tsft` must be short enough that the signal frequency drift within one segment is much less than $1/T_\mathrm{sft}$. The maximum coherent timescale for a binary with projected semi-major axis $a_1$ and spin frequency $f_0$ is $T_\mathrm{coh,max} \approx (c / (2\pi f_0 a_1))^{1/2} P_b^{1/2}$ (see O'Leary et al. 2026, equation 4).
+- `f0` is the **lower** edge of the search band. The search covers $[f_0,\ f_0 + \mathrm{bw}]$.
+- `dm` and `mjd_start` are required only if you want the script to write a `psrfold_fil` candfile. Read `mjd_start` from the `.inf` file, not from the original `.fits` header.
 
 ---
 
-### Step 4: Convert `tref` to `pepoch` (MJD)
+## Parameter Reference
 
-`psrfold_fil` requires `--pepoch` as a Modified Julian Date, but the search returns `tref` in seconds since the start of the dedispersed time series. Convert with:
-
-$$
-\mathrm{pepoch} \;=\; \mathrm{MJD}_\mathrm{start} \;+\; \frac{t_\mathrm{ref}}{86400}
-$$
-
-where $\mathrm{MJD}_\mathrm{start}$ is the start MJD recorded in the `.inf` file produced by Step 2 (field `Epoch of observation (MJD)`), and $86400$ is the number of seconds in a day. For example, with $\mathrm{MJD}_\mathrm{start} = 59391.19581$ and $t_\mathrm{ref} = 945.0$ s:
-
-$$
-\mathrm{pepoch} = 59391.19581 + \frac{945.0}{86400} = 59391.20675
-$$
-
-> **Important:** the start MJD in the `.inf` file refers to the start of the **dedispersed** time series after any cropping or padding applied by `dedisperse_all_fil`. If you instead read the start MJD from the original `.fits` header, make sure it corresponds to the same time origin used by the Viterbi search. If in doubt, use the `.inf` value.
-
----
-
-### Step 5: Fold
-
-Fold the original `.fil` (not the dedispersed `.dat`) at the recovered parameters:
-
-```bash
-psrfold_fil \
-    -v \
-    -t 2 \
-    --f0 378.327569311425 \
-    --f1 -1.624881583924e-06 \
-    --f2 -2.340076538380e-09 \
-    --pepoch 59391.20675 \
-    --dm 24.356441 \
-    --clfd 2.0 \
-    --rfi kadaneF 8 4 zdot \
-    --fillPatch rand \
-    -n 256 \
-    -b 64 \
-    -L 30 \
-    --template path/to/PulsarX/include/template/meerkat_fold.template \
-    -f path/to/output.fil
-```
-
-Flags:
-
-- `--f0 --f1 --f2` taken from `example_run_sinusoid_fit.dat`.
-- `--pepoch` MJD computed in Step 4.
-- `--dm` **must equal the DM used for dedispersion in Step 2** (here, `24.356441`).
-- `--clfd 2.0` time-domain RFI cleaning threshold.
-- `--rfi kadaneF 8 4 zdot` matched RFI chain to the search.
-- `-n 256` number of phase bins.
-- `-b 64` number of frequency channels in the output archive.
-- `-L 30` sub-integration length in seconds.
-- `--template` PulsarX standard fold template (path system-dependent).
-- `-f` input filterbank.
-
-
-If you are on OzStar 
+| Parameter | Required | Description |
+|---|---|---|
+| `infile` | yes | Path to float32 PRESTO `.dat` time series |
+| `tsamp` | yes | Sampling interval (s); must match `.inf` |
+| `Tsft` | yes | Coherent segment length (s) |
+| `f0` | yes | Lower edge of search band (Hz) |
+| `bw` | yes | Search band width (Hz) |
+| `Nsft` | no | Number of segments; `-1` uses full data |
+| `padding_factor` | no | SFT zero-padding factor (default 1) |
+| `num_harm` | no | Number of harmonics to sum incoherently (default 1) |
+| `top_paths` | no | Number of top Viterbi paths to save (default 1) |
+| `poly_order` | no | Polynomial fit order (default 5, giving $f_0 \ldots f_5$) |
+| `out_prefix` | no | Output file prefix (default `search`) |
+| `plot_path` | no | Overplot Viterbi path on spectrogram (default False) |
+| `save_delta` | no | Save full Viterbi delta matrix (default False) |
+| `dm` | no | DM (pc cm$^{-3}$); required for candfile output |
+| `mjd_start` | no | Start MJD of dedispersed time series; required for candfile output |
+| `spec_flo`, `spec_fhi` | no | Frequency axis limits for spectrogram plot (Hz) |
 
 ---
 
-### Pitfalls and Sanity Checks
+## Output Files
 
-- **`tsamp` mismatch.** If the `tsamp` in `search.params` does not match the `.inf` file, all recovered frequencies will be scaled incorrectly. Check the `.inf` file every time.
-- **DM consistency.** The fold DM in Step 5 must match the dedispersion DM in Step 2. Mixing values from different runs (as is easy to do when copying commands) will produce a smeared profile or a non-detection.
-- **Search band.** Make sure the true spin frequency lies inside $[f_0,\ f_0 + \mathrm{bw}]$. If folding gives no profile, widen the band and re-run, or inspect `example_run_loglikes_4_harmonics.png` to see where the peak likelihood actually falls.
-- **Pepoch convention.** A wrong `--pepoch` will rotate the apparent profile in phase but, more importantly, will mis-apply `f1` and `f2`, smearing the profile across sub-integrations even when `f0` is correct. Verify by checking that the folded time-vs-phase plot is straight, not curved.
-- **Sinusoidal fit limitations.** The script fits a single sinusoid to the recovered Viterbi path with bounded amplitude (≤ $1$ Hz) and angular frequency (≤ $1$ rad/s). For wide-orbit binaries or highly non-sinusoidal drifts, the fit may fail or return poor `f1`, `f2`. In that case, fit a polynomial to `example_run_track.dat` directly and substitute those values into Step 5.
+| File | Description |
+|---|---|
+| `<prefix>_loglike_curve.dat` | Log-likelihood vs terminating frequency (primary detection product) |
+| `<prefix>_paths.dat` | Top Viterbi path(s) with log-likelihood |
+| `<prefix>_track.dat` | Path + polynomial fit + Kepler fit vs time |
+| `<prefix>_fit_summary.dat` | Full polynomial and Kepler fit results, classification |
+| `<prefix>_psrfold.candfile` | `psrfold_fil` input (6-column, poly row 0 + Kepler row 1) |
+| `<prefix>_psrfold.candfile.info` | Sidecar: pepoch, F2, Keplerian parameters |
+| `<prefix>_spectrogram.png` | Time-frequency spectrogram with Viterbi path overlaid |
+| `<prefix>_loglikes.png` | Log-likelihood vs frequency at final time step |
+
+---
+
+## Pitfalls and Sanity Checks
+
+**`tsamp` mismatch.** If `tsamp` in the params file does not match the `.inf` file, all recovered frequencies will be scaled by `tsamp_wrong / tsamp_true`. Check the `.inf` file every time, especially after re-running dedispersion.
+
+**DM consistency.** The DM passed to `psrfold_fil` at stage 4 must equal the DM used for dedispersion at stage 2. Mixing values from different runs will smear the folded profile.
+
+**Search band.** Verify that the true spin frequency lies inside $[f_0,\ f_0 + \mathrm{bw}]$. If folding gives no profile, inspect the `_loglike_curve.dat` or `_loglikes.png` to see where the peak likelihood falls and adjust the band.
+
+**Pepoch convention.** The `pepoch` written by `viterbi_pipeline.py` is `mjd_start + t_ref / 86400`, where `t_ref` is the path midpoint in seconds from the start of the dedispersed time series. A wrong `pepoch` mis-applies `f1` and `f2`, smearing the profile across sub-integrations even when `f0` is correct. Verify by checking that the folded time-vs-phase plot is straight, not curved.
+
+**Candfile F2 limitation.** The `psrfold_fil` 6-column candfile schema does not carry F2. Read `--f2` from the `.info` sidecar file and pass it directly on the `psrfold_fil` command line when folding high-spin-down or short-period binary candidates.
+
+**Blind sweep array size.** The `--array` range in `stage3_blind.sh` must equal `n_subbands * n_Tsft - 1` exactly. Recompute after any change to the frequency grid or $N_T$ list.
+
+**Stage 3b array size.** The `--array` range in `stage3b_fit.sh` must equal the number of rows in `candidates_dedup.csv` minus one. Re-check after re-running `aggregate_blind.py` with different thresholds.
+
+---
+
+## Example: 47 Tucanae Blind Search
+
+The experiment `code/experiments/47_Tuc_O_Alessandro_Ridolfi/` contains all job scripts and configuration files for a blind search of a 4-hour MeerKAT L-band observation of 47 Tucanae (observation `47Tuc_22UL_1of2_L.fil`, DM = 24.356441 pc cm$^{-3}$). The search covers 100 to 800 Hz in 78 subbands of width 10 Hz (step 9 Hz) at five coherent timescales ($N_T \in \{16, 32, 64, 128, 256\}$), for a total of 390 Slurm array tasks at stage 3.
