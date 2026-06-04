@@ -4,9 +4,9 @@
 #SBATCH --error=/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/slurm_outputs/slurm-fold-%A_%a.err
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=8g
-#SBATCH --time=01:00:00
-#SBATCH --array=0-375
+#SBATCH --mem=4g
+#SBATCH --time=00:20:00
+#SBATCH --array=0-104
 
 # ----------------------------------------------------------------------------
 # Stage 4 (fold): fold each Viterbi candidate with PulsarX (psrfold_fil).

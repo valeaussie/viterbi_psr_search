@@ -1,0 +1,17 @@
+# Nt (number of coherent segments) grid for the HMM/Viterbi blind search.
+#
+# Values are powers of two for FFT efficiency (Chandler 2003).
+# For Tobs = 14395.42 s the corresponding Tcoh values are:
+#
+#   Nt=16  -> Tcoh = 899.71 s   (long Pb, Doppler-gentle)
+#   Nt=32  -> Tcoh = 449.86 s   (Chandler ceiling for 47 Tuc O)
+#   Nt=64  -> Tcoh = 224.93 s   (intermediate Pb)
+#   Nt=128 -> Tcoh = 112.46 s   (short Pb, ~10^3 s)
+#   Nt=256 -> Tcoh =  56.23 s   (shortest Pb probed)
+#
+# Format: one integer per line; comments and blank lines are ignored.
+16
+32
+64
+128
+256

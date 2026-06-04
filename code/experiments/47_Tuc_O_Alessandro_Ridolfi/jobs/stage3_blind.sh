@@ -6,78 +6,132 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=4g
 #SBATCH --time=00:30:00
-#SBATCH --array=0-389
+
 
 # ----------------------------------------------------------------------------
-# Stage 3 (blind): HMM/Viterbi blind search over a grid of frequency subbands
-# and coherent timescales (Tsft), single DM, lean output.
+# Stage 3 (blind): HMM/Viterbi blind search over a grid of DM trials,
+# frequency subbands, and coherent timescales (Nt), lean output.
 #
-# Grid:
-#   - Subbands: 100..800 Hz, width 10 Hz, step 9 Hz (1 Hz overlap).
-#   - Tsft (Nt) grid: Nt in {16,32,64,128,256}, Tsft = Tobs/Nt.
+# Grid dimensions (recompute --array if any change):
+#   DM:      read from dm_list.txt          (21 trials)
+#   Subbands: 100..800 Hz, width 10 Hz, step 9 Hz (1 Hz overlap) (78 subbands)
+#   Nt:      read from nt_list.txt          (5 values)
+#   Total:   21 * 78 * 5 = 8190 tasks       (array 0-8189)
 #
-# One Slurm array task = one (subband, Tsft) pair. Each task runs
-# viterbi_pipeline.py --lean, which saves only the loglike-vs-frequency curve
-# and the top paths (no fits, no candfile, no plots). A separate aggregator
-# (aggregate_blind.py) peak-finds across all runs afterwards.
+# One Slurm array task = one (DM, subband, Nt) triple.
 #
-# Array size must equal n_subbands * n_Tsft - 1. With 78 subbands x 5 Tsft
-# = 390 runs, use --array=0-389. (Recompute if you change the grid.)
+# Index mapping (column-major, DM slowest):
+#   sub_idx  = IDX % N_SUB
+#   nt_idx   = (IDX // N_SUB) % N_TSFT
+#   dm_idx   = IDX // (N_SUB * N_TSFT)
+#
+# Output layout:
+#   stage3_viterbi/blind_v1/DM<XX.XX>/Nt<N>/f0_<F>/
+#       blind_Nt<N>_f0_<F>_loglike_curve.dat
+#       blind_Nt<N>_f0_<F>_paths.dat
+#       blind_Nt<N>_f0_<F>.params
+#
+# A separate aggregator (aggregate_blind.py) peak-finds across all runs.
 # ----------------------------------------------------------------------------
 
 # --- paths (edit if needed) -------------------------------------------------
 SETUP="/fred/oz022/vdimarco/software/envrmnts/setup_viterbi_psr.sh"
 CODE_DIR="/fred/oz022/vdimarco/software/install/viterbi_psr_search/code"
+JOBS_DIR="${CODE_DIR}/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs"
 VITERBI="${CODE_DIR}/viterbi_pipeline.py"
 EXP_DIR="${CODE_DIR}/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1"
 
-INFILE="${CODE_DIR}/experiments/47_Tuc_O_Alessandro_Ridolfi/data/J0000-00_cfbf00000_Plan1_1_DM24.36.dat"
-TSAMP="7.65607476635514e-05"
-DM="24.356441"
-MJD_START="59391.125996527684038"
+DM_LIST="${JOBS_DIR}/dm_list.txt"
+NT_LIST_FILE="${JOBS_DIR}/nt_list.txt"
 
+ROOTNAME="47Tuc"
 OUT_BASE="${EXP_DIR}/stage3_viterbi/blind_v1"
 
-# --- grid definition (must match the array size above) ----------------------
-# Subbands
+# Observation parameters (read from .inf at runtime per DM; kept here as
+# fallback reference only -- tsamp and mjd_start are read from the .inf)
+TOBS="14395.423083663552"   # seconds; used only to compute Tsft = Tobs/Nt
+
+# Subband grid
 BAND_LO=100.0
 BAND_HI=800.0
-DFB=10.0
-STEP=9.0
+DFB=10.0     # subband width (Hz)
+STEP=9.0     # subband step  (Hz; 1 Hz overlap)
 
-# Tsft grid (exact: Tobs/Nt with Tobs = 14395.423083663552 s)
-# Nt:    16        32        64        128       256
-TSFT_LIST=(899.7139 449.8570 224.9285 112.4642 56.2321)
-NT_LIST=(16 32 64 128 256)
+# ----------------------------------------------------------------------------
+IDX=$(( SLURM_ARRAY_TASK_ID + ${IDX_OFFSET:-0} ))
 
-# --- build the full subband edge list (bash float loop via awk) -------------
-mapfile -t SUBBANDS < <(awk -v lo="${BAND_LO}" -v hi="${BAND_HI}" -v w="${DFB}" -v s="${STEP}" \
+echo "Start (UTC):  $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "Host:         $(hostname)"
+echo "Array job:    ${SLURM_ARRAY_JOB_ID:-N/A} task ${IDX}"
+
+# --- read DM and Nt lists ---------------------------------------------------
+mapfile -t DM_VALS < <(grep -v '^\s*#' "${DM_LIST}" | grep -v '^\s*$')
+mapfile -t NT_VALS < <(grep -v '^\s*#' "${NT_LIST_FILE}" | grep -v '^\s*$')
+
+N_DM=${#DM_VALS[@]}
+N_TSFT=${#NT_VALS[@]}
+
+# --- build subband list -----------------------------------------------------
+mapfile -t SUBBANDS < <(awk \
+    -v lo="${BAND_LO}" -v hi="${BAND_HI}" -v s="${STEP}" \
     'BEGIN{ f=lo; while (f < hi) { printf "%.3f\n", f; f+=s } }')
 
 N_SUB=${#SUBBANDS[@]}
-N_TSFT=${#TSFT_LIST[@]}
-N_TOTAL=$(( N_SUB * N_TSFT ))
+N_TOTAL=$(( N_DM * N_SUB * N_TSFT ))
 
-# --- map this array index to (subband, Tsft) -------------------------------
-IDX=${SLURM_ARRAY_TASK_ID}
 if [ "${IDX}" -ge "${N_TOTAL}" ]; then
     echo "Array index ${IDX} >= N_TOTAL ${N_TOTAL}; nothing to do."
     exit 0
 fi
 
-SUB_I=$(( IDX % N_SUB ))
-TSFT_I=$(( IDX / N_SUB ))
+# --- map array index to (dm_idx, nt_idx, sub_idx) ---------------------------
+SUB_IDX=$(( IDX % N_SUB ))
+NT_IDX=$(( (IDX / N_SUB) % N_TSFT ))
+DM_IDX=$(( IDX / (N_SUB * N_TSFT) ))
 
-F0=${SUBBANDS[${SUB_I}]}
-TSFT=${TSFT_LIST[${TSFT_I}]}
-NT=${NT_LIST[${TSFT_I}]}
+DM="${DM_VALS[${DM_IDX}]}"
+NT="${NT_VALS[${NT_IDX}]}"
+F0_SUB="${SUBBANDS[${SUB_IDX}]}"
 
-# --- header -----------------------------------------------------------------
-echo "Start (UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-echo "Host:        $(hostname)"
-echo "Array job:   ${SLURM_ARRAY_JOB_ID:-N/A} task ${IDX}"
-echo "Grid:        ${N_SUB} subbands x ${N_TSFT} Tsft = ${N_TOTAL} runs"
-echo "This task:   f0=${F0} Hz, bw=${DFB} Hz, Tsft=${TSFT} s (Nt=${NT})"
+DM_TAG=$(printf "DM%05.2f" "${DM}")
+TSFT=$(awk "BEGIN { printf \"%.10f\", ${TOBS} / ${NT} }")
+
+echo "  DM           = ${DM}  (${DM_TAG})"
+echo "  Nt           = ${NT}  Tsft = ${TSFT} s"
+echo "  Subband f0   = ${F0_SUB} Hz"
+
+# --- locate input .dat and .inf for this DM ---------------------------------
+BARY_DIR="${EXP_DIR}/stage2_dedisp/${DM_TAG}_bary"
+DAT="${BARY_DIR}/${ROOTNAME}_${DM_TAG}_bary.dat"
+INF="${BARY_DIR}/${ROOTNAME}_${DM_TAG}_bary.inf"
+
+if [ ! -f "${DAT}" ]; then
+    echo "ERROR: .dat not found: ${DAT}" >&2
+    exit 1
+fi
+if [ ! -f "${INF}" ]; then
+    echo "ERROR: .inf not found: ${INF}" >&2
+    exit 1
+fi
+
+# --- read tsamp and mjd_start from .inf -------------------------------------
+TSAMP=$(grep -i "width of each time series bin" "${INF}" \
+        | awk -F'=' '{gsub(/ /,"",$2); print $2}')
+MJD_START=$(grep -i "epoch of observation (mjd)" "${INF}" \
+            | awk -F'=' '{gsub(/ /,"",$2); print $2}')
+
+if [ -z "${TSAMP}" ] || [ -z "${MJD_START}" ]; then
+    echo "ERROR: could not parse tsamp or mjd_start from ${INF}" >&2
+    exit 1
+fi
+echo "  tsamp        = ${TSAMP} s"
+echo "  mjd_start    = ${MJD_START}"
+
+# --- output directory -------------------------------------------------------
+F0_FMT=$(printf "%.3f" "${F0_SUB}")
+OUT_DIR="${OUT_BASE}/${DM_TAG}/Nt${NT}/f0_${F0_FMT}"
+mkdir -p "${OUT_DIR}"
+OUT_PREFIX="${OUT_DIR}/blind_Nt${NT}_f0_${F0_FMT}"
 
 # --- environment ------------------------------------------------------------
 set +e
@@ -85,37 +139,30 @@ source "${SETUP}"
 set -e
 set -uo pipefail
 
-# --- per-run output dir and params file -------------------------------------
-RUN_DIR="${OUT_BASE}/Nt${NT}/f0_${F0}"
-mkdir -p "${RUN_DIR}"
-cd "${RUN_DIR}"
-
-OUT_PREFIX="blind_Nt${NT}_f0_${F0}"
-PARAMS="${RUN_DIR}/${OUT_PREFIX}.params"
-
+# --- write params file ------------------------------------------------------
+PARAMS="${OUT_PREFIX}.params"
 cat > "${PARAMS}" << PARAMEOF
-infile = "${INFILE}"
-tsamp = ${TSAMP}
-Tsft = ${TSFT}
-Nsft = -1
-f0 = ${F0}
-bw = ${DFB}
+infile     = "${DAT}"
+tsamp      = ${TSAMP}
+Tsft       = ${TSFT}
+Nsft       = -1
+f0         = ${F0_SUB}
+bw         = ${DFB}
 padding_factor = 1
-out_prefix = "${OUT_PREFIX}"
-plot_path = False
-top_paths = 1
+num_harm   = 1
+top_paths  = 1
 save_delta = False
-num_harm = 1
-dm = ${DM}
-mjd_start = ${MJD_START}
+out_prefix = "${OUT_PREFIX}"
+dm         = ${DM}
+mjd_start  = ${MJD_START}
 PARAMEOF
 
-# --- run the lean Viterbi search --------------------------------------------
+# --- run Viterbi (lean mode) ------------------------------------------------
 echo ""
 echo "Running viterbi_pipeline.py --lean ..."
 python "${VITERBI}" --params "${PARAMS}" --lean
 
 echo ""
-echo "=== task ${IDX} complete (f0=${F0}, Nt=${NT}) ==="
+echo "=== task ${IDX} (${DM_TAG} Nt${NT} f0_${F0_FMT}) complete ==="
 echo "End (UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-echo "Loglike curve: ${RUN_DIR}/${OUT_PREFIX}_loglike_curve.dat"
+echo "Output in: ${OUT_DIR}"

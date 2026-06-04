@@ -1,0 +1,40 @@
+# DM trial list for the 47 Tuc HMM/Viterbi blind search.
+#
+# Range:  23.50 -- 25.50 pc/cc
+# Step:   0.10 pc/cc
+# Trials: 21
+#
+# Justification
+# -------------
+# All known 47 Tuc pulsars have DMs in the range 24.2 -- 24.94 pc/cc
+# (Camilo et al. 2000; Pan et al. 2016; Abbate et al. 2023).
+# The range is extended by ~0.7 pc/cc on each side to accommodate
+# undiscovered pulsars and line-of-sight DM variations across the cluster.
+# The step 0.10 pc/cc satisfies the intra-channel smearing constraint
+# delta_t_DM < tsamp (76.6 us) for MeerKAT L-band (856 MHz / 4096 channels,
+# delta_f ~ 0.21 MHz, f_c ~ 1284 MHz), which gives delta_DM_max ~ 0.3 pc/cc.
+#
+# Format: one DM value per line; comments and blank lines are ignored.
+# The DM tag used in directory names is DM<value> with two decimal places,
+# e.g. DM23.50, DM24.36, DM25.50.
+23.50
+23.60
+23.70
+23.80
+23.90
+24.00
+24.10
+24.20
+24.30
+24.40
+24.50
+24.60
+24.70
+24.80
+24.90
+25.00
+25.10
+25.20
+25.30
+25.40
+25.50

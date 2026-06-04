@@ -2,28 +2,34 @@
 """
 aggregate_blind.py
 
-Aggregate the blind Viterbi search results. Reads every
-*_loglike_curve.dat file under the blind output tree, finds peaks in each
-loglike-vs-frequency curve, assembles a master candidate table, and
-cross-matches candidate frequencies against the known 47 Tuc pulsar
-catalogue (from Stage 0).
+Aggregate the blind Viterbi search results across all DM trials, subbands,
+and Nt values.  Reads every *_loglike_curve.dat file under the blind output
+tree, finds peaks in each loglike-vs-frequency curve, assembles a master
+candidate table, and cross-matches candidate frequencies against the known
+pulsar catalogue (from Stage 0).
 
-A peak is any local maximum in the loglike curve that exceeds a threshold.
-For this first pass the threshold is a simple robust cut:
-
+Peak threshold (per curve):
     L_peak > median(L) + n_sigma * 1.4826 * MAD(L)
 
-computed per curve (per subband, per Nt). This is a placeholder until the
-formal L_th from Stage 4 is available; it is deliberately conservative and
-only used to build the candidate list for inspection.
+Two output files are written:
+
+    candidates_raw.csv
+        One row per (DM, Nt, subband, peak_frequency) detection.
+        Full information, nothing collapsed.
+
+    candidates_dedup.csv
+        Deduplicated in frequency only (within --dedup-tol-hz, across
+        subbands and Nt values).  DM information is preserved as new
+        columns: dm_best, dm_values, dm_count.
 
 Usage
 -----
-    python aggregate_blind.py \
-        --blind-dir <stage3_viterbi/blind_v1> \
-        --known-yaml <config/known_47tuc_pulsars.yaml> \
-        --out-csv <candidates.csv> \
-        [--n-sigma 8] [--min-loglike 0] [--match-tol-hz 0.05]
+    python aggregate_blind.py \\
+        --blind-dir  <stage3_viterbi/blind_v1> \\
+        --known-yaml <config/known_47tuc_pulsars.yaml> \\
+        --out-dir    <stage3_viterbi/blind_v1> \\
+        [--n-sigma 8] [--min-loglike 0] \\
+        [--match-tol-hz 0.05] [--dedup-tol-hz 0.5]
 """
 
 import argparse
@@ -40,12 +46,12 @@ except ImportError:
     HAVE_YAML = False
 
 
-def find_peaks(freqs, loglike, n_sigma, min_loglike, min_separation_bins=5):
-    """
-    Find local maxima in a loglike curve exceeding a robust threshold.
+# ---------------------------------------------------------------------------
+# Peak finding
+# ---------------------------------------------------------------------------
 
-    Returns a list of (peak_freq, peak_loglike, threshold) tuples.
-    """
+def find_peaks(freqs, loglike, n_sigma, min_loglike, min_separation_bins=5):
+    """Return list of (peak_freq, peak_loglike, threshold) tuples."""
     L = np.asarray(loglike, dtype=float)
     f = np.asarray(freqs, dtype=float)
     if L.size < 3:
@@ -54,42 +60,57 @@ def find_peaks(freqs, loglike, n_sigma, min_loglike, min_separation_bins=5):
     med = np.median(L)
     mad = np.median(np.abs(L - med))
     sigma = 1.4826 * mad if mad > 0 else np.std(L)
-    thr = med + n_sigma * sigma
-    thr = max(thr, min_loglike)
+    thr = max(med + n_sigma * sigma, min_loglike)
 
     peaks = []
-    last_peak_idx = -10**9
-    # local maxima above threshold
+    last_peak_idx = -(10 ** 9)
     for i in range(1, L.size - 1):
         if L[i] >= L[i - 1] and L[i] > L[i + 1] and L[i] > thr:
             if i - last_peak_idx >= min_separation_bins:
                 peaks.append((float(f[i]), float(L[i]), float(thr)))
                 last_peak_idx = i
-            else:
-                # keep the higher of two close peaks
-                if peaks and L[i] > peaks[-1][1]:
-                    peaks[-1] = (float(f[i]), float(L[i]), float(thr))
-                    last_peak_idx = i
+            elif peaks and L[i] > peaks[-1][1]:
+                peaks[-1] = (float(f[i]), float(L[i]), float(thr))
+                last_peak_idx = i
     return peaks
 
 
+# ---------------------------------------------------------------------------
+# Path metadata parsing
+# ---------------------------------------------------------------------------
+
 def parse_run_metadata(path):
     """
-    Extract Nt and f0 from a path like .../Nt32/f0_378.000/blind_Nt32_f0_378.000_loglike_curve.dat
+    Extract DM, Nt, and subband f0 from a path of the form:
+        .../blind_v1/DM<XX.XX>/Nt<N>/f0_<F>/blind_Nt<N>_f0_<F>_loglike_curve.dat
+    Returns (dm, nt, f0_sub) with dm as float, nt as int, f0_sub as float.
+    Any field that cannot be parsed is returned as None.
     """
+    dm = None
     nt = None
-    f0 = None
+    f0_sub = None
+
+    m = re.search(r"/DM([0-9]+\.[0-9]+)/", path)
+    if m:
+        dm = float(m.group(1))
+
     m = re.search(r"/Nt(\d+)/", path)
     if m:
         nt = int(m.group(1))
+
     m = re.search(r"/f0_([0-9.]+)/", path)
     if m:
-        f0 = float(m.group(1))
-    return nt, f0
+        f0_sub = float(m.group(1))
 
+    return dm, nt, f0_sub
+
+
+# ---------------------------------------------------------------------------
+# Known pulsar catalogue
+# ---------------------------------------------------------------------------
 
 def load_known_pulsars(yaml_path):
-    """Return a list of (name, F0_hz) for known pulsars with an F0."""
+    """Return list of (name, F0_hz) for known pulsars with an F0."""
     if not (HAVE_YAML and yaml_path and os.path.exists(yaml_path)):
         return []
     with open(yaml_path) as fh:
@@ -104,8 +125,8 @@ def load_known_pulsars(yaml_path):
 
 
 def match_known(freq, known, tol_hz):
-    """Return the name of a known pulsar within tol_hz of freq, else None."""
-    best = None
+    """Return name of known pulsar within tol_hz of freq, else empty string."""
+    best = ""
     best_df = tol_hz
     for name, f0 in known:
         df = abs(freq - f0)
@@ -115,31 +136,45 @@ def match_known(freq, known, tol_hz):
     return best
 
 
-def dedup_candidates(rows, tol_hz):
+# ---------------------------------------------------------------------------
+# Deduplication (frequency only; DM info preserved as columns)
+# ---------------------------------------------------------------------------
+
+def dedup_candidates(rows, freq_tol_hz):
     """
-    Collapse peaks within tol_hz of each other into single distinct
-    candidates, merging across Nt values and overlapping subbands.
+    Collapse peaks within freq_tol_hz of each other into single distinct
+    candidates, merging across DM trials, Nt values, and overlapping subbands.
 
-    Greedy: process peaks in descending loglike order; each peak either
-    joins an existing cluster (if within tol_hz of its representative
-    frequency) or starts a new one. The representative keeps the max-loglike
-    peak's frequency and loglike, and records:
-      - multiplicity: how many raw peaks merged
-      - nt_values: sorted list of distinct Nt at which it appeared
-      - known_match: inherited from any merged peak that matched
+    Greedy: process peaks in descending loglike order.  Each peak either
+    joins an existing cluster (if within freq_tol_hz of its representative
+    frequency) or starts a new one.
 
-    Returns a list of dicts sorted by loglike descending.
+    Each cluster records:
+        peak_freq_hz    representative frequency (from highest-loglike peak)
+        peak_loglike    maximum loglike across all merges
+        dm_best         DM of the highest-loglike detection
+        dm_values       sorted CSV of distinct DMs that recovered the candidate
+        dm_count        number of distinct DM trials that recovered it
+        Nt_best         Nt of the highest-loglike detection
+        subband_f0      subband lower edge of the highest-loglike detection
+        multiplicity    total number of raw peaks merged (across DM, Nt, subband)
+        nt_values       sorted CSV of distinct Nt values that recovered it
+        threshold       threshold of the highest-loglike detection
+        known_match     matched known pulsar name if any
+
+    Returns list of dicts sorted by peak_loglike descending.
     """
     ordered = sorted(rows, key=lambda r: r["peak_loglike"], reverse=True)
-    clusters = []  # each: dict with rep info + members
+    clusters = []
 
     for r in ordered:
         f = r["peak_freq_hz"]
         placed = False
         for c in clusters:
-            if abs(f - c["peak_freq_hz"]) <= tol_hz:
+            if abs(f - c["peak_freq_hz"]) <= freq_tol_hz:
                 c["multiplicity"] += 1
                 c["nt_set"].add(r["Nt"])
+                c["dm_set"].add(r["dm"])
                 if not c["known_match"] and r["known_match"]:
                     c["known_match"] = r["known_match"]
                 placed = True
@@ -148,42 +183,66 @@ def dedup_candidates(rows, tol_hz):
             clusters.append({
                 "peak_freq_hz": f,
                 "peak_loglike": r["peak_loglike"],
-                "Nt_best": r["Nt"],
-                "subband_f0": r["subband_f0"],
-                "threshold": r["threshold"],
-                "known_match": r["known_match"],
+                "dm_best":      r["dm"],
+                "Nt_best":      r["Nt"],
+                "subband_f0":   r["subband_f0"],
+                "threshold":    r["threshold"],
+                "known_match":  r["known_match"],
                 "multiplicity": 1,
-                "nt_set": {r["Nt"]},
+                "nt_set":       {r["Nt"]},
+                "dm_set":       {r["dm"]},
             })
 
     for c in clusters:
-        c["nt_values"] = ",".join(str(x) for x in sorted(
-            v for v in c["nt_set"] if v is not None))
+        c["nt_values"] = ";".join(
+            str(x) for x in sorted(v for v in c["nt_set"] if v is not None))
+        c["dm_values"] = ";".join(
+            f"{v:.2f}" for v in sorted(v for v in c["dm_set"] if v is not None))
+        c["dm_count"] = len(c["dm_set"])
         del c["nt_set"]
+        del c["dm_set"]
 
     clusters.sort(key=lambda c: c["peak_loglike"], reverse=True)
     return clusters
 
 
+# ---------------------------------------------------------------------------
+# CSV helpers
+# ---------------------------------------------------------------------------
+
+def write_csv(path, cols, rows):
+    with open(path, "w") as fh:
+        fh.write(",".join(cols) + "\n")
+        for r in rows:
+            fh.write(",".join(str(r.get(c, "")) for c in cols) + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
 def main():
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(
+        description="Aggregate blind Viterbi search results across DM, Nt, and subband grid.")
     ap.add_argument("--blind-dir", required=True,
-                    help="Root of the blind output tree (contains Nt*/f0_*/).")
+                    help="Root of the blind output tree "
+                         "(contains DM*/Nt*/f0_*/ subdirectories).")
     ap.add_argument("--known-yaml", default=None,
-                    help="Path to known_47tuc_pulsars.yaml for cross-matching.")
-    ap.add_argument("--out-csv", required=True,
-                    help="Output CSV path for the candidate table.")
+                    help="Path to known_pulsars.yaml for cross-matching.")
+    ap.add_argument("--out-dir", required=True,
+                    help="Directory for output CSV files.")
     ap.add_argument("--n-sigma", type=float, default=8.0,
-                    help="Robust peak threshold in MAD-sigma above the median.")
+                    help="Robust peak threshold in MAD-sigma above median (default 8).")
     ap.add_argument("--min-loglike", type=float, default=0.0,
-                    help="Absolute minimum loglike for a peak.")
+                    help="Absolute minimum loglike for a peak (default 0).")
     ap.add_argument("--match-tol-hz", type=float, default=0.05,
-                    help="Frequency tolerance for known-pulsar cross-match.")
+                    help="Frequency tolerance for known-pulsar cross-match (default 0.05 Hz).")
     ap.add_argument("--dedup-tol-hz", type=float, default=0.5,
-                    help="Frequency tolerance for collapsing duplicate peaks "
-                         "(across Nt and overlapping subbands) into one "
-                         "distinct candidate.")
+                    help="Frequency tolerance for deduplication across Nt, subband, "
+                         "and DM (default 0.5 Hz).")
     args = ap.parse_args()
+
+    os.makedirs(args.out_dir, exist_ok=True)
 
     pattern = os.path.join(args.blind_dir, "**", "*_loglike_curve.dat")
     files = sorted(glob.glob(pattern, recursive=True))
@@ -196,70 +255,84 @@ def main():
     print(f"Scanning {len(files)} loglike curves...")
 
     rows = []
+    n_skipped = 0
     for path in files:
-        nt, f0sub = parse_run_metadata(path)
+        dm, nt, f0_sub = parse_run_metadata(path)
         try:
             arr = np.loadtxt(path)
         except Exception as exc:
             print(f"  skip {path}: {exc}")
+            n_skipped += 1
             continue
         if arr.ndim != 2 or arr.shape[0] < 3:
+            n_skipped += 1
             continue
         freqs, loglike = arr[:, 0], arr[:, 1]
         peaks = find_peaks(freqs, loglike, args.n_sigma, args.min_loglike)
         for (pf, pl, thr) in peaks:
             match = match_known(pf, known, args.match_tol_hz)
             rows.append({
-                "Nt": nt,
-                "subband_f0": f0sub,
+                "dm":           dm,
+                "Nt":           nt,
+                "subband_f0":   f0_sub,
                 "peak_freq_hz": pf,
                 "peak_loglike": pl,
-                "threshold": thr,
-                "known_match": match if match else "",
+                "threshold":    thr,
+                "known_match":  match,
             })
 
-    # sort by loglike descending
+    if n_skipped:
+        print(f"  ({n_skipped} files skipped due to read errors or insufficient data)")
+
     rows.sort(key=lambda r: r["peak_loglike"], reverse=True)
 
-    cols = ["Nt", "subband_f0", "peak_freq_hz", "peak_loglike",
-            "threshold", "known_match"]
-    with open(args.out_csv, "w") as fh:
-        fh.write(",".join(cols) + "\n")
-        for r in rows:
-            fh.write(",".join(str(r[c]) for c in cols) + "\n")
+    # ------------------------------------------------------------------
+    # Write candidates_raw.csv
+    # ------------------------------------------------------------------
+    raw_cols = ["dm", "Nt", "subband_f0", "peak_freq_hz",
+                "peak_loglike", "threshold", "known_match"]
+    raw_csv = os.path.join(args.out_dir, "candidates_raw.csv")
+    write_csv(raw_csv, raw_cols, rows)
 
-    n_known = sum(1 for r in rows if r["known_match"])
-    n_new = len(rows) - n_known
-    print(f"\nWrote {args.out_csv}")
-    print(f"  total peaks above threshold: {len(rows)}")
-    print(f"  matched to known pulsars:    {n_known}")
-    print(f"  unmatched (candidates):      {n_new}")
+    n_known_raw = sum(1 for r in rows if r["known_match"])
+    print(f"\nWrote {raw_csv}")
+    print(f"  total peaks above threshold : {len(rows)}")
+    print(f"  matched to known pulsars    : {n_known_raw}")
+    print(f"  unmatched                   : {len(rows) - n_known_raw}")
 
     # ------------------------------------------------------------------
-    # De-duplicated candidate list
+    # Write candidates_dedup.csv
     # ------------------------------------------------------------------
     clusters = dedup_candidates(rows, args.dedup_tol_hz)
-    dedup_csv = os.path.splitext(args.out_csv)[0] + "_dedup.csv"
-    dcols = ["peak_freq_hz", "peak_loglike", "multiplicity", "nt_values",
-             "Nt_best", "subband_f0", "threshold", "known_match"]
-    with open(dedup_csv, "w") as fh:
-        fh.write(",".join(dcols) + "\n")
-        for c in clusters:
-            fh.write(",".join(str(c[k]) for k in dcols) + "\n")
+
+    # Column order chosen for readability: identification first, then DM
+    # diagnostic columns, then bookkeeping.
+    dedup_cols = [
+        "peak_freq_hz", "peak_loglike",
+        "dm_best", "dm_count", "dm_values",
+        "multiplicity", "nt_values", "Nt_best",
+        "subband_f0", "threshold", "known_match",
+    ]
+    dedup_csv = os.path.join(args.out_dir, "candidates_dedup.csv")
+    write_csv(dedup_csv, dedup_cols, clusters)
 
     n_known_d = sum(1 for c in clusters if c["known_match"])
-    n_new_d = len(clusters) - n_known_d
     known_names = sorted({c["known_match"] for c in clusters if c["known_match"]})
     print(f"\nWrote {dedup_csv}")
-    print(f"  distinct candidates (dedup, tol={args.dedup_tol_hz} Hz): {len(clusters)}")
-    print(f"  distinct known pulsars recovered: {len(known_names)}")
-    print(f"  distinct unmatched candidates:    {n_new_d}")
+    print(f"  distinct candidates (tol={args.dedup_tol_hz} Hz) : {len(clusters)}")
+    print(f"  distinct known pulsars recovered                  : {len(known_names)}")
+    if known_names:
+        print(f"    {', '.join(known_names)}")
+    print(f"  distinct unmatched candidates                     : {len(clusters) - n_known_d}")
 
     print("\nTop 20 distinct candidates:")
-    print(f"  {'freq_hz':>12} {'loglike':>9} {'mult':>5} {'nt_values':>16}  known_match")
+    hdr = (f"  {'freq_hz':>12}  {'loglike':>9}  {'dm_best':>7}  "
+           f"{'dm_count':>8}  {'mult':>5}  {'nt_values':>16}  known_match")
+    print(hdr)
     for c in clusters[:20]:
-        print(f"  {c['peak_freq_hz']:>12.4f} {c['peak_loglike']:>9.1f} "
-              f"{c['multiplicity']:>5} {c['nt_values']:>16}  {c['known_match']}")
+        print(f"  {c['peak_freq_hz']:>12.4f}  {c['peak_loglike']:>9.1f}  "
+              f"{c['dm_best']:>7.2f}  {c['dm_count']:>8}  "
+              f"{c['multiplicity']:>5}  {c['nt_values']:>16}  {c['known_match']}")
 
 
 if __name__ == "__main__":
