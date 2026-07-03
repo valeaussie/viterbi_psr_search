@@ -1,7 +1,6 @@
 .ipynb_checkpoints/
 datasets/
 data/
-data/
 *.dat
 *.ar
 *.cands
@@ -33,6 +32,13 @@ harmonics/
 process_timeseries.py
 candidate_gallery_base64.html
 candidate_gallery.html
+*.pdf
+*.pfd*
+*.params
+*.inf
+*.info
+*.cand
+*candfile
 
 
 # Python cache

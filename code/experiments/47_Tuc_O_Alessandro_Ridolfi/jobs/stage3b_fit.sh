@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=4g
 #SBATCH --time=00:10:00
-#SBATCH --array=0-104   # adjust upper bound to len(candidates_dedup.csv) - 2
+#SBATCH --array=0-199   # adjust upper bound to len(candidates_dedup.csv) - 2
 
 # ----------------------------------------------------------------------------
 # Stage 3b (fit): run viterbi_search_and_fit.py on each deduplicated candidate

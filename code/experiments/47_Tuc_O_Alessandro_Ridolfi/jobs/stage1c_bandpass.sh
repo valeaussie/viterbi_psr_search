@@ -4,8 +4,8 @@
 #SBATCH --error=/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/slurm_outputs/slurm-bandpass-%j.err
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=8g
-#SBATCH --time=01:00:00
+#SBATCH --mem=4g
+#SBATCH --time=00:10:00
 
 # ----------------------------------------------------------------------------
 # Stage 1b: bandpass diagnostic plot + RFI statistics.
@@ -13,7 +13,7 @@
 # so the venv Python (with sigpyproc, numpy, matplotlib, yaml) works.
 # ----------------------------------------------------------------------------
 
-# --- paths (edit if needed) -------------------------------------------------
+# --- paths -------------------------------------------------
 SETUP="/fred/oz022/vdimarco/software/envrmnts/setup_viterbi_psr.sh"
 POSTPROC="/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/stage1_clean_postprocess.py"
 

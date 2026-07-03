@@ -3,41 +3,49 @@
 #SBATCH --output=/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/slurm_outputs/slurm-dedisp-%A_%a.out
 #SBATCH --error=/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/slurm_outputs/slurm-dedisp-%A_%a.err
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=2
+#SBATCH --cpus-per-task=4
 #SBATCH --mem=16g
 #SBATCH --tmp=40g
 #SBATCH --time=02:00:00
 #SBATCH --array=0-20   # one task per DM trial; must equal len(dm_list.txt) - 1
 
 # ----------------------------------------------------------------------------
-# Stage 2: incoherent dedispersion + barycentring with PRESTO prepdata.
+# Stage 2: incoherent dedispersion with RFI mitigation using PulsarX
+# dedisperse_all_fil inside Apptainer.
 #
-# Runs one SLURM array task per DM trial.  The DM list is read from
+# Runs one SLURM array task per DM trial. The DM list is read from
 # dm_list.txt (one value per line, comments and blank lines ignored).
-# Each task produces a barycentred dedispersed time series:
+# Each task produces a dedispersed time series in PRESTO format:
 #
-#   stage2_dedisp/DM<XX.XX>_bary/
-#       <rootname>_DM<XX.XX>_bary.dat
-#       <rootname>_DM<XX.XX>_bary.inf
+#   stage2_dedisp/DM<XX.XX>/
+#       <rootname>_DM<XX.XX>.dat
+#       <rootname>_DM<XX.XX>.inf
 #
-# NOTE: the filterbank channels are already coherently dedispersed within
-# each channel at the cluster DM at recording time.  prepdata performs
-# the incoherent dedispersion across channels and sums them into a 1-D
-# float32 .dat time series.
+# RFI mitigation is applied inline by dedisperse_all_fil using kadaneF and
+# zdot algorithms. No separate filtool cleaning step is required because the
+# FBFUSE beamformer pipeline pre-normalises the filterbank before writing it.
+# The RFI mitigation here catches any residual intermittent RFI.
+#
+# NOTE: dedisperse_all_fil does not barycentre. The output is topocentric.
+# The Viterbi pipeline operates on topocentric time series.
 #
 # Array size must equal the number of non-comment lines in DM_LIST minus 1.
 # ----------------------------------------------------------------------------
+
+set -euo pipefail
 
 # --- paths (edit if needed) -------------------------------------------------
 SETUP="/fred/oz022/vdimarco/software/envrmnts/setup_viterbi_psr.sh"
 EXP_DIR="/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1"
 JOBS_DIR="/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs"
 
-CLEANED_FIL="${EXP_DIR}/stage1_clean/47Tuc_22UL_1of2_L_RFIcleaned_01.fil"
-DM_LIST="${JOBS_DIR}/dm_list.txt"
+INPUT_FIL="/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/data/47Tuc_22UL_1of2_L.fil"
+PULSARX_SIF="/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/data/pulsarx_20241219.sif"
+BIND_PATH="/fred/oz022/vdimarco"
 
-# Root name used as prepdata -o prefix (no DM tag; that is appended below)
+DM_LIST="${JOBS_DIR}/dm_list.txt"
 ROOTNAME="47Tuc"
+NTHREADS=4
 
 # ----------------------------------------------------------------------------
 IDX=${SLURM_ARRAY_TASK_ID}
@@ -56,49 +64,54 @@ if [ "${IDX}" -ge "${N_DM}" ]; then
 fi
 
 DM="${DM_VALS[${IDX}]}"
-
-# Format DM tag with two decimal places, e.g. 24.36 -> DM24.36
 DM_TAG=$(printf "DM%05.2f" "${DM}")
+
 echo "DM:           ${DM}  (tag: ${DM_TAG})"
-echo "Input:        ${CLEANED_FIL}"
+echo "Input:        ${INPUT_FIL}"
+
+# --- check input exists -----------------------------------------------------
+if [ ! -f "${INPUT_FIL}" ]; then
+    echo "ERROR: input filterbank not found: ${INPUT_FIL}" >&2
+    exit 1
+fi
+
+# --- output directory -------------------------------------------------------
+OUT_DIR="${EXP_DIR}/stage2_dedisp/${DM_TAG}"
+mkdir -p "${OUT_DIR}"
+
+echo "Output dir:   ${OUT_DIR}"
 
 # --- environment ------------------------------------------------------------
 set +e
 source "${SETUP}"
 set -e
-set -uo pipefail
 
-if ! command -v prepdata >/dev/null 2>&1; then
-    echo "ERROR: prepdata not found on PATH after sourcing setup." >&2
-    exit 1
-fi
+module load apptainer
 
-if [ ! -f "${CLEANED_FIL}" ]; then
-    echo "ERROR: cleaned filterbank not found: ${CLEANED_FIL}" >&2
-    exit 1
-fi
-
-# --- output directory -------------------------------------------------------
-BARY_DIR="${EXP_DIR}/stage2_dedisp/${DM_TAG}_bary"
-mkdir -p "${BARY_DIR}"
-
-OUT_ROOT="${ROOTNAME}_${DM_TAG}_bary"
-
-# --- barycentred dedispersion -----------------------------------------------
+# --- dedisperse -------------------------------------------------------------
 echo ""
-echo "=== Barycentred dedispersion at DM=${DM} ==="
-cd "${BARY_DIR}"
-prepdata \
-    -dm "${DM}" \
-    -o "${OUT_ROOT}" \
-    "${CLEANED_FIL}" \
-    2>&1 | tee "${BARY_DIR}/prepdata.log"
+echo "=== Dedispersion at DM=${DM} with RFI mitigation ==="
+cd "${OUT_DIR}"
+
+apptainer exec -B "${BIND_PATH}" "${PULSARX_SIF}" \
+    dedisperse_all_fil \
+        --dms  "${DM}" \
+        --ddm  0.1 \
+        --ndm  1 \
+        --rfi  kadaneF 8 4 zdot \
+        --fillPatch rand \
+        --threads "${NTHREADS}" \
+        --rootname "${ROOTNAME}" \
+        -v \
+        --format presto \
+        -f "${INPUT_FIL}" \
+    2>&1 | tee "${OUT_DIR}/dedisperse.log"
 
 echo ""
 echo "Outputs:"
-ls -lh "${BARY_DIR}/${OUT_ROOT}.dat" "${BARY_DIR}/${OUT_ROOT}.inf"
+ls -lh "${OUT_DIR}/${ROOTNAME}"*.dat "${OUT_DIR}/${ROOTNAME}"*.inf 2>/dev/null || \
+    echo "WARNING: expected output files not found in ${OUT_DIR}"
 
 echo ""
 echo "=== Stage 2 task ${IDX} (${DM_TAG}) complete ==="
 echo "End (UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-echo "Output:    ${BARY_DIR}/${OUT_ROOT}.dat"
