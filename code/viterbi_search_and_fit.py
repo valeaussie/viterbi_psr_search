@@ -71,6 +71,66 @@ def _load_params_file(path: str) -> dict:
             out[k] = v
     return out
 
+def _read_real_nsamples_from_inf(dat_path: str):
+    """
+    Given a path to a PRESTO .dat file, look for the matching .inf file and
+    return the number of REAL (non-padded) samples in the time series.
+
+    PRESTO pads the time series to a 'good' FFT length and records the real
+    data span in the first On/Off bin pair, e.g.
+
+        Number of bins in the time series      =  192000000
+        Any breaks in the data? (1 yes, 0 no)  =  1
+        On/Off bin pair #  1                   =  0          , 188083507
+        On/Off bin pair #  2                   =  191999999  , 191999999
+
+    Here the real data are bins 0 .. 188083507 inclusive, i.e. 188083508
+    samples; the rest is padding.
+
+    Returns
+    -------
+    int or None
+        Number of real samples, or None if no .inf is found or it cannot be
+        parsed (in which case the caller should fall back to the full length).
+    """
+    base, _ = os.path.splitext(dat_path)
+    inf_path = base + ".inf"
+    if not os.path.exists(inf_path):
+        return None
+
+    total_bins = None
+    has_breaks = None
+    first_off_bin = None
+
+    with open(inf_path, "r", errors="replace") as fh:
+        for line in fh:
+            low = line.lower()
+            if "number of bins in the time series" in low:
+                try:
+                    total_bins = int(line.split("=")[-1].strip())
+                except (ValueError, IndexError):
+                    pass
+            elif "any breaks in the data" in low:
+                try:
+                    has_breaks = int(line.split("=")[-1].strip())
+                except (ValueError, IndexError):
+                    pass
+            elif "on/off bin pair #  1" in low or "on/off bin pair #1" in low:
+                try:
+                    rhs = line.split("=")[-1]
+                    off_bin = int(rhs.split(",")[-1].strip())
+                    first_off_bin = off_bin
+                except (ValueError, IndexError):
+                    pass
+
+    if has_breaks is not None and has_breaks == 0:
+        return total_bins
+
+    if first_off_bin is not None:
+        return first_off_bin + 1
+
+    return None
+
 
 def compute_sft(data, tsamp, Tsft, fh, bw, offset=0, padding_factor=1):
     print(len(data))
@@ -529,9 +589,15 @@ if __name__ == '__main__':
     parser.add_argument('--poly-order', type=int,
                         help="Polynomial order for Taylor-expansion fit "
                              "(default 5: gives f0..f5)", default=5)
+    parser.add_argument('--known-label', type=str, default="",
+                        help="Classification label added to the plot legend, "
+                             "e.g. '2x J0024-7204J harmonic'. Empty = no annotation.")
     parser.add_argument('--params', type=str, default=None,
                         help="Path to .params file. CLI args override file values.")
-
+    parser.add_argument('--dm', type=float, default=None,
+                        help="Dispersion measure (pc/cm^3) for the psrfold candfile")
+    parser.add_argument('--mjd-start', type=float, default=None,
+                        help="Start MJD of the observation for the psrfold candfile")
     pre_args, _ = parser.parse_known_args()
     params_dict = _load_params_file(pre_args.params)
     parser.set_defaults(**params_dict)
@@ -544,6 +610,20 @@ if __name__ == '__main__':
 
     tsamp = args.tsamp
     data = np.fromfile(args.infile, dtype=np.single)
+
+    # PRESTO pads the time series to a 'good' FFT length. Trim to the real
+    # (non-padded) sample count recorded in the matching .inf file, so the
+    # trailing padding does not enter the spectrogram and bias the Viterbi
+    # path / log-likelihood. If no .inf is found, use the full .dat length.
+    n_real = _read_real_nsamples_from_inf(args.infile)
+    if n_real is not None and n_real < len(data):
+        print(f"Trimming padded data: {len(data)} -> {n_real} real samples "
+              f"(from .inf)")
+        data = data[:n_real]
+    elif n_real is None:
+        print("No .inf found or could not parse it; using full .dat length "
+              "(no padding trim).")
+
     Tfull = len(data) * tsamp
     Tsft = args.Tsft
     if args.Nsft == -1:
@@ -707,7 +787,10 @@ if __name__ == '__main__':
     ax.autoscale(False)
 
     if args.plot_path:
-        ax.plot(t, path, 'r', linewidth=2, label='Viterbi path')
+        if args.known_label:
+            ax.plot([], [], ' ', label=args.known_label)
+        ax.plot(t, path, 'r', linewidth=2,
+        label=f'Viterbi path (T_coh = {Tsft:.1f} s, N_seg = {Nsft})')
         ax.plot(t, poly_path_fit, color='tab:blue', linestyle='--',
                 linewidth=1.5, label=f'Polynomial (order {poly_order})')
         ax.plot(t, kep_path_fit, color='tab:orange', linestyle=':',
@@ -718,16 +801,26 @@ if __name__ == '__main__':
     ax.set_ylabel('Frequency (Hz)')
     if args.spec_flo is not None and args.spec_fhi is not None:
         ax.set_ylim(args.spec_flo, args.spec_fhi)
-    plt.savefig(f'{args.out_prefix}_spectrogram.png', dpi=600,
-                bbox_inches='tight')
+    else:
+        curves = [path]
+        if args.plot_path:
+            curves += [poly_path_fit, kep_path_fit]
+        valid = [c[np.isfinite(c)] for c in curves]
+        valid = [c for c in valid if c.size > 0]
+        y_lo = min(c.min() for c in valid)
+        y_hi = max(c.max() for c in valid)
+        margin = max(20 * df_bin, 0.1 * (y_hi - y_lo))
+        y_lo = max(y_lo - margin, f0)
+        y_hi = min(y_hi + margin, f0 + bw)
+        ax.set_ylim(y_lo, y_hi)
+    plt.savefig(f'{args.out_prefix}_spectrogram.pdf', bbox_inches='tight')
     plt.clf()
 
     # Log-likelihood vs frequency at the final time step
     plt.xlabel('Frequency (Hz)')
     plt.ylabel('Log likelihood')
     plt.plot(f0 + bw / 2 + fs, delta[:, -1])
-    plt.savefig(f'{args.out_prefix}_loglikes.png', dpi=600,
-                bbox_inches='tight')
+    plt.savefig(f'{args.out_prefix}_loglikes.pdf', bbox_inches='tight')
     plt.clf()
 
     print(f"\nLoglike: {np.max(delta[:, -1])}")

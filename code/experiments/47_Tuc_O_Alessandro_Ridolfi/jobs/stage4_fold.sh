@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=4g
 #SBATCH --time=00:20:00
-#SBATCH --array=0-104
+#SBATCH --array=0-87
 
 # ----------------------------------------------------------------------------
 # Stage 4 (fold): fold each Viterbi candidate with PulsarX (psrfold_fil).

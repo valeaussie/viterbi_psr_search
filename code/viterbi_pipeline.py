@@ -164,7 +164,7 @@ def compute_sft(data, tsamp, Tsft, fh, bw, offset=0, padding_factor=1):
 
     norm = np.var(het_decim_data) * len(het_decim_data)
 
-    fs = np.linspace(-bw / 2, bw / 2, len(het_decim_data))
+    fs = fft.fftshift(fft.fftfreq(len(het_decim_data), d=new_tsamp))
     return 1 / norm * np.abs(fft.fftshift(het_data_fft)) ** 2, fs
 
 

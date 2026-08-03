@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=4g
-#SBATCH --time=00:30:00
+#SBATCH --time=00:10:00
 
 
 # ----------------------------------------------------------------------------
@@ -14,9 +14,9 @@
 #
 # Grid dimensions (recompute --array if any change):
 #   DM:      read from dm_list.txt          (21 trials)
-#   Subbands: 100..800 Hz, width 10 Hz, step 9 Hz (1 Hz overlap) (78 subbands)
+#   Subbands: 50..1050 Hz, width 10 Hz, step 9 Hz (1 Hz overlap) (112 subbands)
 #   Nt:      read from nt_list.txt          (5 values)
-#   Total:   21 * 78 * 5 = 8190 tasks       (array 0-8189)
+#   Total:   21 * 112 * 5 = 11760 tasks       (array 0-16463)
 #
 # One Slurm array task = one (DM, subband, Nt) triple.
 #
@@ -49,11 +49,10 @@ OUT_BASE="${EXP_DIR}/stage3_viterbi/blind_v1"
 
 # Observation parameters (read from .inf at runtime per DM; kept here as
 # fallback reference only -- tsamp and mjd_start are read from the .inf)
-TOBS="14395.423083663552"   # seconds; used only to compute Tsft = Tobs/Nt
 
 # Subband grid
-BAND_LO=100.0
-BAND_HI=800.0
+BAND_LO=50.0
+BAND_HI=1050.0
 DFB=10.0     # subband width (Hz)
 STEP=9.0     # subband step  (Hz; 1 Hz overlap)
 
@@ -94,10 +93,8 @@ NT="${NT_VALS[${NT_IDX}]}"
 F0_SUB="${SUBBANDS[${SUB_IDX}]}"
 
 DM_TAG=$(printf "DM%05.2f" "${DM}")
-TSFT=$(awk "BEGIN { printf \"%.10f\", ${TOBS} / ${NT} }")
 
 echo "  DM           = ${DM}  (${DM_TAG})"
-echo "  Nt           = ${NT}  Tsft = ${TSFT} s"
 echo "  Subband f0   = ${F0_SUB} Hz"
 
 # --- locate input .dat and .inf for this DM ---------------------------------
@@ -119,13 +116,22 @@ TSAMP=$(grep -i "width of each time series bin" "${INF}" \
         | awk -F'=' '{gsub(/ /,"",$2); print $2}')
 MJD_START=$(grep -i "epoch of observation (mjd)" "${INF}" \
             | awk -F'=' '{gsub(/ /,"",$2); print $2}')
+NSAMP=$(grep -i "number of bins in the time series" "${INF}" \
+        | awk -F'=' '{gsub(/ /,"",$2); print $2}')
 
-if [ -z "${TSAMP}" ] || [ -z "${MJD_START}" ]; then
-    echo "ERROR: could not parse tsamp or mjd_start from ${INF}" >&2
+if [ -z "${TSAMP}" ] || [ -z "${MJD_START}" ] || [ -z "${NSAMP}" ]; then
+    echo "ERROR: could not parse tsamp, mjd_start or nsamp from ${INF}" >&2
     exit 1
 fi
+
+TOBS=$(awk "BEGIN { printf \"%.10f\", ${NSAMP} * ${TSAMP} }")
+TSFT=$(awk "BEGIN { printf \"%.10f\", ${TOBS} / ${NT} }")
+
 echo "  tsamp        = ${TSAMP} s"
 echo "  mjd_start    = ${MJD_START}"
+echo "  nsamp        = ${NSAMP}"
+echo "  Tobs         = ${TOBS} s"
+echo "  Nt           = ${NT}  Tsft = ${TSFT} s"
 
 # --- output directory -------------------------------------------------------
 F0_FMT=$(printf "%.3f" "${F0_SUB}")

@@ -27,7 +27,7 @@ NTHREADS=8
 RA="00:24:04.6500"
 DEC="-72:04:53.8000"
 
-RFI_FLAGS="-z zdot kadaneF 8 4 kadaneT 8 4 zap 925 960 zap 1525 1612 zap 1675 1720 --fillPatch rand"
+RFI_FLAGS="-z zdot kadaneF 8 4 kadaneT 8 4 --fillPatch rand"
 
 # --- run --------------------------------------------------------------------
 mkdir -p "${OUT_DIR}"

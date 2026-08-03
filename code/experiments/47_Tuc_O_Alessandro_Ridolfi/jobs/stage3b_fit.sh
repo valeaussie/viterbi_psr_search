@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=4g
 #SBATCH --time=00:10:00
-#SBATCH --array=0-199   # adjust upper bound to len(candidates_dedup.csv) - 2
+#SBATCH --array=0-193   # adjust upper bound to len(candidates_dedup.csv) - 2
 
 # ----------------------------------------------------------------------------
 # Stage 3b (fit): run viterbi_search_and_fit.py on each deduplicated candidate
@@ -18,7 +18,7 @@
 #   2. Locates the dedispersed .dat and .inf for DM_BEST from stage2_dedisp.
 #   3. Reads tsamp and mjd_start from the .inf (never hardcoded).
 #   4. Locates the blind-run .params file for (DM_BEST, Nt_best, subband_f0).
-#   5. Writes a per-candidate params file with a 10 Hz window centred on
+#   5. Writes a per-candidate params file with a 2 Hz window centred on
 #      peak_freq_hz, Tsft = Tobs/Nt_best, and dm = DM_BEST.
 #   6. Runs viterbi_search_and_fit.py.
 #
@@ -45,12 +45,12 @@ FIT_SCRIPT="${CODE_DIR}/viterbi_search_and_fit.py"
 PARSE_SCRIPT="${JOBS_DIR}/parse_dedup_row.py"
 EXP_DIR="${CODE_DIR}/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1"
 
-DEDUP_CSV="${EXP_DIR}/stage3_viterbi/blind_v1/candidates_dedup.csv"
+DEDUP_CSV="${EXP_DIR}/stage3_viterbi/candidates/candidates_dedup.csv"
 BLIND_BASE="${EXP_DIR}/stage3_viterbi/blind_v1"
 CAND_DIR="${EXP_DIR}/stage3_viterbi/candidates"
+CLASSIFIED_CSV="${CAND_DIR}/classified.csv"
 
 ROOTNAME="47Tuc"
-TOBS="14395.423083663552"   # seconds; used to compute Tsft = Tobs / Nt_best
 BW_CAND="2.0"              # candidate window width in Hz
 
 # ----------------------------------------------------------------------------
@@ -96,6 +96,9 @@ echo "  subband_f0   = ${SUB_F0} Hz"
 echo "  multiplicity = ${MULT}  nt_values = ${NT_VALS}"
 echo "  known_match  = ${KNOWN:-none}"
 
+KNOWN_LABEL=$(python "${JOBS_DIR}/get_known_label.py" --csv "${CLASSIFIED_CSV}" --idx "${IDX}")
+echo "  known_label  = ${KNOWN_LABEL:-<none>}"
+
 # --- locate .dat and .inf for DM_BEST ---------------------------------------
 DM_TAG=$(printf "DM%05.2f" "${DM_BEST}")
 BARY_DIR="${EXP_DIR}/stage2_dedisp/${DM_TAG}_bary"
@@ -116,13 +119,16 @@ TSAMP=$(grep -i "width of each time series bin" "${INF}" \
         | awk -F'=' '{gsub(/ /,"",$2); print $2}')
 MJD_START=$(grep -i "epoch of observation (mjd)" "${INF}" \
             | awk -F'=' '{gsub(/ /,"",$2); print $2}')
+NSAMP=$(grep -i "number of bins in the time series" "${INF}" \
+        | awk -F'=' '{gsub(/ /,"",$2); print $2}')
 
-if [ -z "${TSAMP}" ] || [ -z "${MJD_START}" ]; then
-    echo "ERROR: could not parse tsamp or mjd_start from ${INF}" >&2
+if [ -z "${TSAMP}" ] || [ -z "${MJD_START}" ] || [ -z "${NSAMP}" ]; then
+    echo "ERROR: could not parse tsamp, mjd_start or nsamp from ${INF}" >&2
     exit 1
 fi
 echo "  tsamp        = ${TSAMP} s"
 echo "  mjd_start    = ${MJD_START}"
+echo "  nsamp        = ${NSAMP}"
 
 # --- locate blind params file for (DM_BEST, Nt_best, subband_f0) ------------
 SUB_F0_FMT=$(printf "%.3f" "${SUB_F0}")
@@ -134,8 +140,10 @@ if [ ! -f "${BLIND_PARAMS}" ]; then
     exit 1
 fi
 
-# --- compute Tsft -----------------------------------------------------------
+# --- compute Tobs and Tsft --------------------------------------------------
+TOBS=$(awk "BEGIN { printf \"%.10f\", ${NSAMP} * ${TSAMP} }")
 TSFT=$(awk "BEGIN { printf \"%.10f\", ${TOBS} / ${NT_BEST} }")
+echo "  Tobs         = ${TOBS} s"
 echo "  Tsft         = ${TSFT} s  (Tobs / Nt = ${TOBS} / ${NT_BEST})"
 
 # --- candidate frequency window ---------------------------------------------
@@ -164,6 +172,7 @@ out_prefix = "${OUT_PREFIX}"
 plot_path  = True
 dm         = ${DM_BEST}
 mjd_start  = ${MJD_START}
+known_label = "${KNOWN_LABEL}"
 PARAMEOF
 
 echo ""
@@ -172,15 +181,9 @@ echo "Running viterbi_search_and_fit.py ..."
 echo ""
 
 # --- run the fit ------------------------------------------------------------
-SPEC_LO=$(awk "BEGIN { printf \"%.6f\", ${PEAK_FREQ} - 0.05 }")
-SPEC_HI=$(awk "BEGIN { printf \"%.6f\", ${PEAK_FREQ} + 0.05 }")
-
 python "${FIT_SCRIPT}" \
     --params   "${PARAMS}" \
-    --plot-path \
-    --spec-flo "${SPEC_LO}" \
-    --spec-fhi "${SPEC_HI}"
-
+    --plot-path
 echo ""
 echo "=== task ${IDX} (${CAND_ID}) complete ==="
 echo "End (UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)"
