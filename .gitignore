@@ -28,7 +28,6 @@ viterbi_pipeline_old.py
 scalloping/
 flux/
 harmonics/
-redetection_of_47TucO/
 process_timeseries.py
 candidate_gallery_base64.html
 candidate_gallery.html
