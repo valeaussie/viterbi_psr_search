@@ -1,20 +1,13 @@
 .ipynb_checkpoints/
 datasets/
 data/
-*.dat
-*.ar
-*.cands
 no_padding/
 pred.tim
 t2pred.dat
 test/
-*.out
 out*/
 test_out/
-*.err
 logs/
-*.log
-*.png
 old/
 results/
 slurm_output/
@@ -33,11 +26,20 @@ candidate_gallery_base64.html
 candidate_gallery.html
 *.pdf
 *.pfd*
+*.png
 *.params
 *.inf
 *.info
 *.cand
-*candfile
+*.cands
+*.candfile
+*.dat
+*.csv
+*.ar
+*.log
+*.err
+*.out
+
 
 
 # Python cache

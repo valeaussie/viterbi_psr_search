@@ -1,0 +1,28 @@
+PSRJ      J0024-7204O
+RAJ       00:24:04.65254
+DECJ      -72:04:53.7670
+POSEPOCH  51600
+PMRA      5.25
+PMDEC     -2.55
+PX        0.232
+
+F0        378.308788360098
+F1        -4.34352E-15
+F2        4.38E-26
+PEPOCH    51600
+
+DM        24.35800
+DMEPOCH   59606
+
+BINARY    BTX
+A1        0.0451533
+T0        51600.0757563
+ECC       0
+OM        0
+FB0       8.511956725E-5
+FB1       -7.30E-20
+FB2       -1.00E-28
+
+EPHEM     DE421
+CLK       UTC(NIST)
+UNITS     TDB

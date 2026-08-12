@@ -1,0 +1,11 @@
+for PEP in 59391.19 59391.21 59391.2119 59391.23 59391.25; do
+  psrfold_fil -v -t 2 \
+    --f0 378.326969588272 \
+    --dm 24.356441 --pepoch $PEP \
+    --clfd 2.0 --rfi kadaneF 8 4 zdot --fillPatch rand \
+    -n 256 -b 64 -L 30 \
+    --template /home/pulsarx/software/PulsarX/include/template/meerkat_fold.template \
+    --srcname t0_pepoch_test \
+    -o val_f1_pep_${PEP} \
+    -f ../data/47Tuc_22UL_1of2_L.fil 2>&1 | tee val_f1_pep_${PEP}.log
+done

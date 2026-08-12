@@ -1,0 +1,8 @@
+for i in 1 2 3 4; do
+  psrfold_fil -v -t 2 --f0 378.326969588272 --dm 24.356441 --pepoch 59391.2119067078 \
+    --clfd 2.0 --rfi kadaneF 8 4 zdot --fillPatch rand -n 256 -b 64 -L 30 \
+    --template /home/pulsarx/software/PulsarX/include/template/meerkat_fold.template \
+    --srcname t0_pepoch_test2 -o val_repeat_2${i} \
+    -f ../data/47Tuc_22UL_1of2_L.fil 2>&1 | tee val_repeat_2${i}.log
+done
+grep -iH "s/n" val_repeat_2*.log 2>/dev/null || echo "read S/N from the plots"

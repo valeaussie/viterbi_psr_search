@@ -820,6 +820,9 @@ if __name__ == '__main__':
     plt.xlabel('Frequency (Hz)')
     plt.ylabel('Log likelihood')
     plt.plot(f0 + bw / 2 + fs, delta[:, -1])
+    np.savetxt(f"{args.out_prefix}_loglikes.dat",
+           np.column_stack([f0 + bw / 2 + fs, delta[:, -1]]),
+           header="freq_Hz  loglike")
     plt.savefig(f'{args.out_prefix}_loglikes.pdf', bbox_inches='tight')
     plt.clf()
 
