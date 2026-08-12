@@ -39,6 +39,7 @@ candidate_gallery.html
 *.log
 *.err
 *.out
+*.lo
 
 
 
