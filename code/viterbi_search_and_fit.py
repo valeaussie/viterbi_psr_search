@@ -8,6 +8,7 @@ import scipy.signal as sig
 import scipy.fftpack as fft
 from scipy.optimize import curve_fit
 import argparse
+import json
 import configparser
 import ast
 import os
@@ -132,9 +133,12 @@ def _read_real_nsamples_from_inf(dat_path: str):
     return None
 
 
-def compute_sft(data, tsamp, Tsft, fh, bw, offset=0, padding_factor=1):
+def compute_sft(data, tsamp, Tsft, fh, bw, offset=0,
+                padding_factor=1, sample_count=None):
     print(len(data))
-    count = int(Tsft / tsamp)
+    count = int(Tsft / tsamp) if sample_count is None else sample_count
+    if count < 1 or offset < 0 or offset + count > len(data):
+        raise ValueError("Segment extends outside the valid data")
 
     data_to_sft = np.concatenate((
         (data[offset:offset + count] - np.mean(data[offset:offset + count])),
@@ -148,9 +152,16 @@ def compute_sft(data, tsamp, Tsft, fh, bw, offset=0, padding_factor=1):
 
     new_tsamp = 1. / bw
     decim_factor = int(new_tsamp / tsamp)
-    new_tsamp = tsamp * decim_factor
+    if decim_factor < 1:
+        raise ValueError("Requested bandwidth exceeds the input sample rate")
+    n_resampled = int(count * padding_factor / decim_factor)
+    if n_resampled < 2:
+        raise ValueError("SFT must contain at least two resampled samples")
 
-    het_decim_data = sig.resample(het_data, int(count * padding_factor / decim_factor))
+    # Fourier resampling sets this interval before odd-length truncation.
+    # Preserve the resampled values and truncation; correct only bin labels.
+    new_tsamp = tsamp * len(het_data) / n_resampled
+    het_decim_data = sig.resample(het_data, n_resampled)
 
     if len(het_decim_data) % 2 == 1:
         het_decim_data = het_decim_data[:-1]
@@ -159,7 +170,7 @@ def compute_sft(data, tsamp, Tsft, fh, bw, offset=0, padding_factor=1):
 
     norm = np.var(het_decim_data) * len(het_decim_data)
 
-    fs = np.linspace(-bw / 2, bw / 2, len(het_decim_data))
+    fs = fft.fftshift(fft.fftfreq(len(het_decim_data), d=new_tsamp))
     return 1 / norm * np.abs(fft.fftshift(het_data_fft)) ** 2, fs
 
 
@@ -558,6 +569,8 @@ if __name__ == '__main__':
                         help="Input data file (PRESTO-format float32 .dat)")
     parser.add_argument('--tsamp', type=float,
                         help="Time series sampling period (in seconds)")
+    parser.add_argument('--segments', type=int, default=None,
+                        help="Divide the valid, unpadded data into this many equal segments")
     parser.add_argument('--Tsft', type=float,
                         help="Length of each Short Fourier Transform (s)")
     parser.add_argument('--Nsft', type=int,
@@ -603,7 +616,7 @@ if __name__ == '__main__':
     parser.set_defaults(**params_dict)
     args = parser.parse_args()
 
-    required_fields = ['infile', 'tsamp', 'Tsft', 'f0', 'bw']
+    required_fields = ['infile', 'tsamp', 'f0', 'bw']
     missing = [field for field in required_fields if getattr(args, field) is None]
     if missing:
         raise ValueError(f"Missing required parameters: {missing}")
@@ -625,14 +638,57 @@ if __name__ == '__main__':
               "(no padding trim).")
 
     Tfull = len(data) * tsamp
-    Tsft = args.Tsft
-    if args.Nsft == -1:
-        Nsft = int(Tfull // Tsft)
-    elif args.Nsft > 0:
-        Nsft = args.Nsft
+    sample_count = None
+
+    if args.segments is not None:
+        if n_real is None or n_real < 1 or n_real > len(data):
+            raise ValueError("Cannot establish the valid sample count from .inf")
+        if args.Tsft is not None or args.Nsft != -1:
+            raise ValueError("Use segments without Tsft or Nsft")
+        if not np.isfinite(tsamp) or tsamp <= 0:
+            raise ValueError("tsamp must be positive and finite")
+        Nsft = args.segments
+        if Nsft < 1 or Nsft > len(data):
+            raise ValueError("Invalid number of segments")
+        sample_count = len(data) // Nsft
+        Tsft = sample_count * tsamp
     else:
-        print("--Nsft must be > 0!")
-        sys.exit(1)
+        # Preserve historical duration-based boundaries for existing params.
+        Tsft = args.Tsft
+        if Tsft is None or not np.isfinite(Tsft) or Tsft <= 0:
+            raise ValueError("Provide either segments or a positive finite Tsft")
+        if args.Nsft == -1:
+            Nsft = int(Tfull // Tsft)
+        elif args.Nsft > 0:
+            Nsft = args.Nsft
+        else:
+            raise ValueError("Nsft must be positive or -1")
+
+    if Nsft < 1:
+        raise ValueError("No complete segments fit in the valid data")
+
+    count = int(Tsft / tsamp) if sample_count is None else sample_count
+    last_start = (int((Nsft - 1) * Tsft / tsamp) if sample_count is None
+                  else (Nsft - 1) * sample_count)
+    if count < 1 or last_start + count > len(data):
+        raise ValueError("Requested segments extend outside the valid data")
+    unused_samples = len(data) - (last_start + count)
+    print(f"Actual segments: {Nsft}")
+    print(f"Segment duration: {Tsft:.12f} s")
+    print(f"Samples per segment: {count}")
+    print(f"Unused trailing samples: {unused_samples}")
+    with open(f"{args.out_prefix}_sampling.json", "w") as fh:
+        json.dump({
+            "mode": "legacy_Tsft" if sample_count is None else "exact_segments",
+            "actual_segments": Nsft,
+            "segment_duration_s": Tsft,
+            "frequency_axis_version": 2,
+            "samples_per_segment": count,
+            "valid_samples": len(data),
+            "tsamp_s": tsamp,
+            "unused_trailing_samples": unused_samples
+        }, fh, indent=2)
+        fh.write("\n")
 
     downsample_tsamp = tsamp
     downsample_data = data
@@ -645,7 +701,8 @@ if __name__ == '__main__':
     # Build spectrogram
     # ------------------------------------------------------------------
     _, fs = compute_sft(downsample_data, downsample_tsamp, Tsft,
-                        f0 + bw / 2., bw, padding_factor=args.padding_factor)
+                        f0 + bw / 2., bw, padding_factor=args.padding_factor,
+                        sample_count=sample_count)
     spec = np.zeros((len(fs), Nsft), dtype=float)
     unsummed_spec = np.zeros((len(fs), args.num_harm), dtype=float)
     for i in range(0, Nsft):
@@ -654,8 +711,10 @@ if __name__ == '__main__':
             harm_spec, _ = np.abs(compute_sft(
                 downsample_data, downsample_tsamp, Tsft,
                 (f0 + bw / 2) * harm, bw * harm,
-                offset=int(i * Tsft / downsample_tsamp),
-                padding_factor=args.padding_factor
+                offset=(int(i * Tsft / downsample_tsamp)
+                        if sample_count is None else i * sample_count),
+                padding_factor=args.padding_factor,
+                sample_count=sample_count
             ))
             harm_spec = harm_spec[:harm * len(fs)]
             avgd_harm_spec = np.mean(harm_spec.reshape((-1, harm)), axis=1)

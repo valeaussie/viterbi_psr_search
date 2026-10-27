@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 fold_on_track.py
-Fold a barycentred dedispersed PRESTO time series (.dat) with the identical
+Fold a dedispersed PRESTO time series (.dat) with the identical
 in-house folder, choosing the phase model with --model:
 
   track  : per-segment Viterbi frequencies (track.dat), held piecewise-constant
@@ -9,8 +9,7 @@ in-house folder, choosing the phase model with --model:
   kepler : Keplerian fit f_spin,K,Pb,T0 from fit_summary.dat (smooth f(t))
 
 Same data, same binning, same S/N definition, NO search: the only thing that
-changes between runs is the phase model. The .dat is barycentred, so no frame
-conversion is applied.
+changes between runs is the phase model.
 
 Usage:
   python fold_on_track.py --model track \

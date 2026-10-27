@@ -15,8 +15,14 @@
 # Grid dimensions (recompute --array if any change):
 #   DM:      read from dm_list.txt          (21 trials)
 #   Subbands: 50..1050 Hz, width 10 Hz, step 9 Hz (1 Hz overlap) (112 subbands)
-#   Nt:      read from nt_list.txt          (5 values)
-#   Total:   21 * 112 * 5 = 11760 tasks       (array 0-16463)
+#   Nt:      read from nt_list.txt          (7 values: 16 32 64 128 256 512 1024)
+#   Total:   21 * 112 * 7 = 16464 tasks       (global index 0-16463)
+#
+#   OzSTAR MaxArraySize is 2048, so this is submitted in nine chunks using
+#   IDX = SLURM_ARRAY_TASK_ID + IDX_OFFSET (see below). Submit with
+#   --export=ALL,IDX_OFFSET=N. The counts above are authoritative only if
+#   dm_list.txt and nt_list.txt are unchanged; the script reads both at run
+#   time and does not depend on these numbers.
 #
 # One Slurm array task = one (DM, subband, Nt) triple.
 #
@@ -124,14 +130,11 @@ if [ -z "${TSAMP}" ] || [ -z "${MJD_START}" ] || [ -z "${NSAMP}" ]; then
     exit 1
 fi
 
-TOBS=$(awk "BEGIN { printf \"%.10f\", ${NSAMP} * ${TSAMP} }")
-TSFT=$(awk "BEGIN { printf \"%.10f\", ${TOBS} / ${NT} }")
 
 echo "  tsamp        = ${TSAMP} s"
 echo "  mjd_start    = ${MJD_START}"
 echo "  nsamp        = ${NSAMP}"
-echo "  Tobs         = ${TOBS} s"
-echo "  Nt           = ${NT}  Tsft = ${TSFT} s"
+echo "  Requested Nt = ${NT}; Tsft will use valid samples in Python"
 
 # --- output directory -------------------------------------------------------
 F0_FMT=$(printf "%.3f" "${F0_SUB}")
@@ -150,8 +153,7 @@ PARAMS="${OUT_PREFIX}.params"
 cat > "${PARAMS}" << PARAMEOF
 infile     = "${DAT}"
 tsamp      = ${TSAMP}
-Tsft       = ${TSFT}
-Nsft       = -1
+segments   = ${NT}
 f0         = ${F0_SUB}
 bw         = ${DFB}
 padding_factor = 1

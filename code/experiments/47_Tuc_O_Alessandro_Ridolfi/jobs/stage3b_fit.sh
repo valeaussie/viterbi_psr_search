@@ -6,11 +6,12 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=4g
 #SBATCH --time=00:10:00
-#SBATCH --array=0-193   # adjust upper bound to len(candidates_dedup.csv) - 2
+# Set --array=0-(N-1) at submission, where N is the current table row count.
+# The old fixed 194-candidate array is not valid for per-timescale alternatives.
 
 # ----------------------------------------------------------------------------
-# Stage 3b (fit): run viterbi_search_and_fit.py on each deduplicated candidate
-# from candidates_dedup.csv.
+# Stage 3b (fit): run viterbi_search_and_fit.py on each per-timescale candidate alternative
+# from candidates_timescale_alternatives.csv.
 #
 # Each task:
 #   1. Calls parse_dedup_row.py to read all candidate fields, including
@@ -19,11 +20,11 @@
 #   3. Reads tsamp and mjd_start from the .inf (never hardcoded).
 #   4. Locates the blind-run .params file for (DM_BEST, Nt_best, subband_f0).
 #   5. Writes a per-candidate params file with a 2 Hz window centred on
-#      peak_freq_hz, Tsft = Tobs/Nt_best, and dm = DM_BEST.
+#      peak_freq_hz, segments = Nt_best, and dm = DM_BEST.
 #   6. Runs viterbi_search_and_fit.py.
 #
 # Output layout:
-#   stage3_viterbi/candidates/
+#   stage3_viterbi/candidates_timescale_alternatives/
 #     cand_000/
 #       cand_000.params
 #       cand_000_psrfold.candfile
@@ -45,16 +46,16 @@ FIT_SCRIPT="${CODE_DIR}/viterbi_search_and_fit.py"
 PARSE_SCRIPT="${JOBS_DIR}/parse_dedup_row.py"
 EXP_DIR="${CODE_DIR}/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1"
 
-DEDUP_CSV="${EXP_DIR}/stage3_viterbi/candidates/candidates_dedup.csv"
+DEDUP_CSV="${EXP_DIR}/stage3_viterbi/candidates/candidates_timescale_alternatives.csv"
 BLIND_BASE="${EXP_DIR}/stage3_viterbi/blind_v1"
-CAND_DIR="${EXP_DIR}/stage3_viterbi/candidates"
-CLASSIFIED_CSV="${CAND_DIR}/classified.csv"
+CAND_DIR="${EXP_DIR}/stage3_viterbi/candidates_timescale_alternatives"
+CLASSIFIED_CSV="${CAND_DIR}/classified_timescale_alternatives.csv"
 
 ROOTNAME="47Tuc"
 BW_CAND="2.0"              # candidate window width in Hz
 
 # ----------------------------------------------------------------------------
-IDX=${SLURM_ARRAY_TASK_ID}
+IDX=${SLURM_ARRAY_TASK_ID:?Submit an array sized for the current candidate table}
 CAND_ID=$(printf "cand_%03d" "${IDX}")
 
 echo "Start (UTC):  $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -140,11 +141,8 @@ if [ ! -f "${BLIND_PARAMS}" ]; then
     exit 1
 fi
 
-# --- compute Tobs and Tsft --------------------------------------------------
-TOBS=$(awk "BEGIN { printf \"%.10f\", ${NSAMP} * ${TSAMP} }")
-TSFT=$(awk "BEGIN { printf \"%.10f\", ${TOBS} / ${NT_BEST} }")
-echo "  Tobs         = ${TOBS} s"
-echo "  Tsft         = ${TSFT} s  (Tobs / Nt = ${TOBS} / ${NT_BEST})"
+# --- request exact segmentation after padding removal -----------------------
+echo "  Requested Nt = ${NT_BEST}; Tsft will use valid samples in Python"
 
 # --- candidate frequency window ---------------------------------------------
 F0_CAND=$(awk "BEGIN { printf \"%.10f\", ${PEAK_FREQ} - ${BW_CAND}/2.0 }")
@@ -160,8 +158,7 @@ PARAMS="${OUT_DIR}/${CAND_ID}.params"
 cat > "${PARAMS}" << PARAMEOF
 infile     = "${DAT}"
 tsamp      = ${TSAMP}
-Tsft       = ${TSFT}
-Nsft       = -1
+segments   = ${NT_BEST}
 f0         = ${F0_CAND}
 bw         = ${BW_CAND}
 padding_factor = 1

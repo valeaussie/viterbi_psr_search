@@ -17,12 +17,12 @@ Pooling loglike values across different N_T values gives a multi-modal
 distribution that cannot be fitted as a single exponential.  The threshold
 is therefore computed separately for each distinct N_T value.
 
-Within each N_T group, all loglike values (one per frequency bin per curve)
-from all subbands and DM trials are pooled.  This is equivalent to the
-paper's Monte Carlo procedure with N_real = n_curves independent noise
-realisations of the spectrogram, where n_curves is the number of curve files
-in the group.  Because most subbands are noise-dominated, this approximates
-the noise-only distribution.
+Within each N_T group, loglike values from subbands and DM trials are pooled
+as an empirical surrogate for noise. Nearby DM trials and overlapping bands
+are correlated, so these are not independent Monte Carlo realisations.
+The historical threshold formula is retained; its nominal false alarm
+probability needs separate validation. Keeping timescale alternatives does
+not supply a calibrated probability or a common ranking across timescales.
 
 The procedure follows Eqs 13-17 of the paper:
 
@@ -46,7 +46,11 @@ where k = --dedup-bin-widths (default 2) and T_obs is read from the sibling
 Two output files are written:
 
     candidates_raw.csv
-    candidates_dedup.csv
+    candidates_timescale_alternatives.csv
+
+The latter retains an alternative per timescale. Nt_best identifies that
+row's group; it is not a winner across timescales. Rows are frequency-ordered.
+Regenerate row-indexed classifications for this table before follow-up.
 
 Usage
 -----
@@ -64,6 +68,7 @@ Usage
 
 import argparse
 import glob
+import json
 import os
 import re
 from collections import defaultdict
@@ -92,8 +97,8 @@ def compute_paper_threshold(loglike_values, n_curves, n_q, false_alarm_rate,
         All loglike values pooled from curves in this N_T group.
         Total size = n_curves * N_Q (approximately).
     n_curves : int
-        Number of independent Viterbi runs (curve files) in this group.
-        This is N_real in the paper's notation.
+        Number of curve files used as the historical proxy for N_real.
+        Correlations between files need separate calibration.
     n_q : int
         Median number of frequency bins per curve in this group (N_Q).
     false_alarm_rate : float
@@ -149,9 +154,14 @@ def compute_paper_threshold(loglike_values, n_curves, n_q, false_alarm_rate,
 
 def read_tsft_from_params(loglike_curve_path):
     """
-    Read Tsft from the sibling .params file written by viterbi_pipeline.py.
+    Read the resolved segment duration, falling back to historical .params.
     Returns float or None.
     """
+    sampling_path = loglike_curve_path.replace("_loglike_curve.dat", "_sampling.json")
+    if os.path.isfile(sampling_path):
+        with open(sampling_path) as fh:
+            return float(json.load(fh)["segment_duration_s"])
+
     params_path = loglike_curve_path.replace("_loglike_curve.dat", ".params")
     if not os.path.isfile(params_path):
         return None
@@ -277,18 +287,22 @@ def match_known(freq, known, tol_hz):
 
 def dedup_candidates(rows, freq_tol_hz):
     """
-    Collapse peaks within freq_tol_hz of each other into single candidates,
-    merging across DM trials, Nt values, and overlapping subbands.
-    Returns list of dicts sorted by peak_loglike descending.
+    Merge nearby DM/subband peaks only within the same Nt group.
+    Retain separate alternatives across timescales instead of comparing their
+    raw accumulated scores. Nt_best names the group, not a cross-group winner.
+    Return frequency-ordered rows with the historical eleven-column layout.
     """
-    ordered = sorted(rows, key=lambda r: r["peak_loglike"], reverse=True)
+    ordered = sorted(rows, key=lambda r: (
+        r["Nt"] if r["Nt"] is not None else -1, -r["peak_loglike"],
+        r["peak_freq_hz"], r["dm"] if r["dm"] is not None else -1,
+        r["subband_f0"] if r["subband_f0"] is not None else -1))
     clusters = []
 
     for r in ordered:
         f = r["peak_freq_hz"]
         placed = False
         for c in clusters:
-            if abs(f - c["peak_freq_hz"]) <= freq_tol_hz:
+            if r["Nt"] == c["Nt_best"] and abs(f - c["peak_freq_hz"]) <= freq_tol_hz:
                 c["multiplicity"] += 1
                 c["nt_set"].add(r["Nt"])
                 c["dm_set"].add(r["dm"])
@@ -319,7 +333,8 @@ def dedup_candidates(rows, freq_tol_hz):
         del c["nt_set"]
         del c["dm_set"]
 
-    clusters.sort(key=lambda c: c["peak_loglike"], reverse=True)
+    clusters.sort(key=lambda c: (c["peak_freq_hz"],
+                                 c["Nt_best"] if c["Nt_best"] is not None else -1))
     return clusters
 
 
@@ -502,7 +517,8 @@ def main():
                     "known_match":  match,
                 })
 
-    all_rows.sort(key=lambda r: r["peak_loglike"], reverse=True)
+    all_rows.sort(key=lambda r: (r["Nt"], r["peak_freq_hz"],
+                                 r["dm"] if r["dm"] is not None else -1))
 
     # ------------------------------------------------------------------
     # Write candidates_raw.csv
@@ -519,7 +535,7 @@ def main():
     print(f"  unmatched                   : {len(all_rows) - n_known_raw}")
 
     # ------------------------------------------------------------------
-    # Write candidates_dedup.csv
+    # Write candidates_timescale_alternatives.csv
     # ------------------------------------------------------------------
     clusters = dedup_candidates(all_rows, dedup_tol_hz)
 
@@ -529,17 +545,17 @@ def main():
         "multiplicity", "nt_values", "Nt_best",
         "subband_f0", "threshold", "known_match",
     ]
-    dedup_csv = os.path.join(args.out_dir, "candidates_dedup.csv")
+    dedup_csv = os.path.join(args.out_dir, "candidates_timescale_alternatives.csv")
     write_csv(dedup_csv, dedup_cols, clusters)
 
     n_known_d = sum(1 for c in clusters if c["known_match"])
     known_names = sorted({c["known_match"] for c in clusters if c["known_match"]})
     print(f"\nWrote {dedup_csv}")
-    print(f"  distinct candidates (tol={dedup_tol_hz:.5f} Hz) : {len(clusters)}")
+    print(f"  timescale alternatives (tol={dedup_tol_hz:.5f} Hz) : {len(clusters)}")
     print(f"  distinct known pulsars recovered               : {len(known_names)}")
     if known_names:
         print(f"    {', '.join(known_names)}")
-    print(f"  distinct unmatched candidates                  : "
+    print(f"  unmatched timescale alternatives                  : "
           f"{len(clusters) - n_known_d}")
 
     # ------------------------------------------------------------------
@@ -552,6 +568,7 @@ def main():
         fh.write(f"tail_percentile   = {args.tail_percentile}\n")
         fh.write(f"dedup_tol_hz      = {dedup_tol_hz:.6f}\n")
         fh.write(f"dedup_source      = {dedup_source}\n")
+        fh.write("candidate_policy  = retain_per_timescale\n")
         if t_obs is not None:
             fh.write(f"t_obs_inferred_s  = {t_obs:.3f}\n")
         if max_nt is not None:
@@ -568,7 +585,7 @@ def main():
             )
     print(f"\nCalibration metadata written to {threshold_path}")
 
-    print("\nTop 20 distinct candidates:")
+    print("\nFirst 20 timescale alternatives (frequency order):")
     hdr = (f"  {'freq_hz':>12}  {'loglike':>9}  {'dm_best':>7}  "
            f"{'dm_count':>8}  {'mult':>5}  {'nt_values':>16}  known_match")
     print(hdr)

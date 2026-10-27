@@ -1,50 +1,60 @@
-.ipynb_checkpoints/
-datasets/
-data/
-no_padding/
-pred.tim
-t2pred.dat
-test/
-out*/
-test_out/
-logs/
-old/
-results/
-slurm_output/
-stage*/
-provenance/
-config/
-topo_test/
-Porb/
-sample_dataset/
-viterbi_pipeline_old.py
-scalloping/
-flux/
-harmonics/
-process_timeseries.py
-candidate_gallery_base64.html
-candidate_gallery.html
-*.pdf
-*.pfd*
-*.png
-*.params
-*.inf
-*.info
-*.cand
-*.cands
-*.candfile
-*.dat
-*.csv
-*.ar
-*.log
-*.err
-*.out
-*.lo
+# Paper reproducibility only: everything is ignored unless listed below.
+# This keeps local tests, observations, simulations, benchmarks, logs,
+# generated figures/tables, software containers and backup records on disk.
+# Add a new source/input explicitly here when it becomes part of the paper.
+# Ignoring a path does not remove an already tracked file from Git.
+*
 
+# Reopen only the directories containing selected files.
+!/code/
+!/code/experiments/
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1/
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/redetection_of_47TucO/
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1/config/
 
-
-# Python cache
-__pycache__/
-*.pyc
-
-
+# Exact source, documentation and fixed-input allowlist.
+!/.gitignore
+!/README.md
+!/code/__init__.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1/config/known_47tuc_pulsars.yaml
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1/config/observation.yaml
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/aggregate_blind.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/check_orbit_model.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/classify_known.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/collate_fold_snr.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/dm_list.txt
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/flag_rfi.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/get_known_label.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/make_candidate_gallery.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/nt_list.txt
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/parse_dedup_row.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/patch_known_pulsars.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/select_coherent_candidates.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/stage0_inspect.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/stage1_rfi_cleaning.sh
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/stage1a_plots_inspect_dynamic_spectrum.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/stage1b_bandpass_diagnostic.sh
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/stage1c_clean_postprocess.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/stage2_dedisp_new.sh
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/stage3_blind.sh
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/stage3b_fit.sh
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/stage4_fold.sh
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/stage4_fold_dm0.sh
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/stage5_collate.sh
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/redetection_of_47TucO/47TucO_psrcat.par
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/redetection_of_47TucO/J0024-7204O_obsepoch.par
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/redetection_of_47TucO/collate_Lth.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/redetection_of_47TucO/compute_Lth.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/redetection_of_47TucO/fold_on_track.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/redetection_of_47TucO/grid_search.sh
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/redetection_of_47TucO/kepler_fit_to_par.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/redetection_of_47TucO/norm_viterbi_significance.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/redetection_of_47TucO/plot_ntscan_foldsnr.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/redetection_of_47TucO/plot_ntscan_summary.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/redetection_of_47TucO/poly_grid_fold.sh
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/redetection_of_47TucO/stage_Lth.sh
+!/code/viterbi.py
+!/code/viterbi_pipeline.py
+!/code/viterbi_search_and_fit.py
