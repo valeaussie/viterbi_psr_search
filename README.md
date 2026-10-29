@@ -14,58 +14,35 @@ The method is described in:
 
 ---
 
-## Candidate diagnostic plots
+## HMM candidate plots in `docs/`
 
-The following PDFs contain the 415 selected HMM candidates from the saved
-`47Tuc_blind_search_v1/stage4_fold/comparison_v1/hmm/` comparison. Each PDF
-has one page per candidate, in the same order, with bookmarks for navigation.
-These are snapshots restored from the saved search arrays and model fits;
-adding them here does not rerun the search or update the fits. They are
-separate from the corrected `blind_v2` production rerun.
+The [`docs/plots/hmm_candidate_review/`](docs/plots/hmm_candidate_review/)
+directory contains three PDF collections for the 415 selected HMM candidates
+from `47Tuc_blind_search_v1/stage4_fold/comparison_v1/hmm/`. Each collection
+has one bookmarked page per candidate, in the same candidate order.
 
-| Plot collection | Contents |
+| PDF | What it shows |
 |---|---|
-| [Spectrograms with fits](docs/plots/hmm_candidate_review/01_spectrograms_with_fits.pdf) | Time-frequency maps with the Viterbi track, polynomial fit and circular Kepler fit. |
-| [Likelihoods with thresholds](docs/plots/hmm_candidate_review/02_likelihoods_with_thresholds.pdf) | Full source-subband ending-state score curves, selection thresholds, selected endpoints and local peak insets. |
-| [Plain likelihoods over 2 Hz](docs/plots/hmm_candidate_review/03_plain_likelihoods_2Hz.pdf) | Score curves within 1 Hz of each selected endpoint, clipped to the original subband, without thresholds, markers or insets. |
+| [01: Spectrograms with fits](docs/plots/hmm_candidate_review/01_spectrograms_with_fits.pdf) | Normalised Fourier power as a function of time and barycentric frequency, with the Viterbi frequency track and the saved polynomial and circular Kepler fits overlaid. This shows how the preferred signal frequency evolves during the observation. |
+| [02: Likelihoods with thresholds](docs/plots/hmm_candidate_review/02_likelihoods_with_thresholds.pdf) | The HMM ending-state score across the full source subband, with the selection threshold, selected endpoint and a local peak inset. This shows where the candidate lies relative to the threshold and neighbouring peaks. |
+| [03: Plain likelihoods over 2 Hz](docs/plots/hmm_candidate_review/03_plain_likelihoods_2Hz.pdf) | The same score curve within 1 Hz of the selected endpoint, clipped to the original subband, without threshold lines, markers or insets. This gives a closer view of the peak shape. |
 
-The model overlays are diagnostic fits. In particular, a circular Kepler
-curve is not a validated orbital solution.
+An ending-state score is the maximum accumulated score of an allowed HMM
+path ending in that frequency bin. These PDFs were restored from the saved
+search arrays and model fits; they are separate from the corrected `blind_v2`
+rerun. The fitted curves are diagnostic, and a circular Kepler overlay is
+not a validated orbital solution.
 
-### RFI flags in the plot titles
-
-The RFI flags are automatic frequency-based warnings, not confirmed RFI
-classifications. The thresholds below use the candidate's selected
-`peak_freq_hz`, which is the final Viterbi-track frequency in these plots.
-These are barycentric search frequencies in Hz, not receiver subband
-frequencies in MHz. The rules do not assess the fold or its DM dependence.
-
-| Flag | What triggers it | Why it was flagged |
-|---|---|---|
-| `rfi_swarm` | Frequency between 990 and 1010 Hz, inclusive. | A crowded region around 1 kHz where interference generated many similar candidates. |
-| `rfi_comb` | Within 0.05 Hz of a multiple of 25 Hz. | Possible association with regularly spaced interference tones, such as 75, 100 or 125 Hz. |
-| `rfi_family` | Within 0.4 Hz of 216.68, 433.357, 650.03 or 866.71 Hz. | Near a previously identified interference family and its harmonics. |
-| `none` | None of these frequency rules matched. | No warning from these rules; this does not establish that the candidate is free of RFI. |
-
-The rules are applied in the order swarm, comb, then family, and the first
-match supplies the label. **Retained** means the candidate was kept for
-inspection and folding despite its flag. Every selected candidate was
-retained, including flagged candidates and known pulsars. A flag alone is
-not a reason to reject a candidate; DM-zero comparisons and folding provide
-additional evidence.
-
-The thresholds and retention policy are defined in
-[`flag_rfi.py`](code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/flag_rfi.py).
-
-For this plotted candidate set, RFI flags are advisory and all candidates
-are retained. References later in this README to moving folders or excluding
-flagged candidates describe the earlier Stage 3c policy.
+The RFI labels and the meaning of **retained** are explained in
+[Stage 3c: RFI flags and candidate retention](#stage-3c-rfi-flags-and-candidate-retention).
 
 ---
 
 ## Repository Structure
 
 ```
+docs/
+    plots/hmm_candidate_review/     # Three HMM candidate PDF collections linked above
 code/
     viterbi.py                      # Core HMM: Viterbi recursion, numpy implementation
     viterbi_pipeline.py             # Main search script: SFT computation, lean blind mode
@@ -86,7 +63,7 @@ code/
                 stage5_collate.sh
                 aggregate_blind.py      # Stage 3a candidate aggregation
                 classify_known.py       # Cross-match candidates against known pulsars
-                flag_rfi.py             # Stage 3c RFI separation
+                flag_rfi.py             # Stage 3c advisory RFI flags
                 get_known_label.py      # Format one classified row as a plot legend label
                 parse_dedup_row.py      # Read one candidate row for the Stage 3b launcher
                 collate_fold_snr.py     # Stage 5 S/N extraction
@@ -303,8 +280,9 @@ ls <exp-dir>/stage3_viterbi/candidates/classified.csv
 
 The full order is therefore: Stage 3a aggregation, then `classify_known.py`
 (see [Known-pulsar classification and plot annotation](#known-pulsar-classification-and-plot-annotation)),
-then Stage 3b, then Stage 3c RFI separation. Stage 3c must come last of the
-four, because it moves the `cand_NNN` folders that Stage 3b creates.
+then Stage 3b, then [Stage 3c RFI flagging](#stage-3c-rfi-flags-and-candidate-retention).
+For the 415-candidate comparison, RFI flags are advisory and do not remove
+candidates from fitting or folding.
 
 Set the array upper bound to the number of candidates minus one, that is, the number of data rows in `candidates_dedup.csv` (its line count minus one for the header). For the 47 Tuc run with 194 candidates the range is `0-193`.
 
@@ -340,7 +318,7 @@ fit, `Nt_best` is a grid label, while `N_seg` in the plot is the actual number
 of segments the refit used.
 
 
-### Stage 3c: RFI separation
+### Stage 3c: RFI flags and candidate retention
 
 ```bash
 python flag_rfi.py \
@@ -350,70 +328,64 @@ python flag_rfi.py \
     --out-csv        <exp-dir>/stage3_viterbi/candidates/rfi_flags.csv
 ```
 
-Identifies interference among the candidates that `classify_known.py` left
-`unclassified`, and moves their `cand_NNN` folders into `candidates_rfi/`.
-Nothing is ever deleted, and candidates labelled `known_main` or
-`known_harmonic` are excluded from consideration by construction.
+The RFI labels are frequency-based warnings, not confirmed RFI classifications.
+For the 415-candidate comparison linked above, **every selected candidate is
+retained**, including flagged candidates and known pulsars. **Retained** in
+a plot title means the candidate remains available for inspection and folding.
 
-Without `--move` the script only reports. Add `--move` once the dry-run
-totals look right.
+The rules use the selected `peak_freq_hz`, which is the final Viterbi-track
+frequency in these plots. These are barycentric search frequencies in Hz,
+not receiver subband frequencies in MHz. The rules do not assess the fold
+or its DM dependence.
 
-**Three rules**, applied in order. The first to match claims the candidate,
-so the recorded reason reflects rule order, not physical priority.
+| Flag | What triggers it | Why it was flagged |
+|---|---|---|
+| `rfi_swarm` | Frequency between 990 and 1010 Hz, inclusive. | A crowded region around 1 kHz where interference generated many similar candidates. |
+| `rfi_comb` | Within 0.05 Hz of a multiple of 25 Hz. | Possible association with regularly spaced interference tones, such as 75, 100 or 125 Hz. |
+| `rfi_family` | Within 0.4 Hz of 216.68, 433.357, 650.03 or 866.71 Hz. | Near a previously identified interference family and its harmonics. |
+| `none` | None of these frequency rules matched. | No warning from these rules; this does not establish that the candidate is free of RFI. |
 
-| Rule | Test | Rationale |
-|------|------|-----------|
-| `rfi_swarm` | frequency in 990 to 1010 Hz | One broad interference structure fragmented by the dedup tolerance into many nominal candidates |
-| `rfi_comb` | within 0.05 Hz of a multiple of 25 Hz | Round-number terrestrial tones |
-| `rfi_family` | within 0.4 Hz of 216.68, 433.357, 650.03 or 866.71 Hz | A signal confirmed terrestrial by DM-zero folding, plus its harmonics |
+Rules are applied in the order swarm, comb, then family; the first match
+supplies the label. These thresholds are specific to this observation and
+must be reassessed for other datasets. A flag alone is not a reason to
+reject a candidate; DM-zero comparisons and folding provide additional evidence.
+The implementation is in
+[`flag_rfi.py`](code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/flag_rfi.py).
 
-**Safety check.** Before anything is reported or moved, all three rules are
-applied to the candidates already labelled as known pulsars. If any rule
-would catch one of them, the script aborts and changes nothing. The known
-pulsars are the control group, and no rule that damages them is acceptable.
-This is how the family tolerance was set: at 0.6 Hz the rule catches the 2/3
-harmonic of J0024-7204ah at 217.155 Hz and the check fails, so the tolerance
-was tightened to 0.4 Hz, which still covers every observed family member.
+**Output and known-pulsar checks.** The advisory version writes every selected
+candidate to `rfi_flags.csv`, with its flag, reason, verdict, nearest catalogue
+harmonic, frequency residual and retention status. Known pulsars and their
+classified harmonics receive `protected_known`; a flagged, unclassified
+candidate within 0.1 Hz of a catalogue `n/m` harmonic, with `n` and `m` from
+1 to 4, receives `hold_near_known`. Both are inspection labels within the
+policy of retaining every candidate, not exceptions that remove other candidates.
 
-**Override.** A candidate lying within 0.1 Hz of any `n/m` harmonic of a
-catalogue pulsar, for `n` and `m` up to 4, is never vetoed. It is labelled
-`hold_near_known` and left in place for inspection. Veto windows are blunt,
-and the swarm window alone spans 20 Hz, so without this a genuine harmonic
-falling inside would vanish with no trace.
+#### Historical RFI separation in the 194-candidate run
 
-**Outputs.**
+An earlier version supported `--move` and moved flagged, unclassified
+candidate folders into `candidates_rfi/`, recording the reasons in
+`rfi_manifest.csv`. This is historical behaviour, not the retention policy
+of the 415-candidate comparison.
 
-- `rfi_flags.csv`: every unclassified candidate, with verdict, reason, and
-  its nearest catalogue harmonic and residual.
-- `candidates_rfi/rfi_manifest.csv`: written on `--move`, so the reason for
-  each removal travels with the folders rather than living only in a log.
+Of 151 unclassified candidates in that earlier run, 144 were moved
+(104 swarm, 13 comb and 27 family), one was held near a catalogue harmonic,
+and six were kept. Five of the six appeared to be fragments of known
+pulsars, offset by about 0.16 Hz from their parents and missed by the
+classification tolerance; the remaining candidate was at 938.45 Hz, almost
+4 Hz from its nearest catalogue harmonic.
 
-**Result on the 47 Tuc run.** Of 151 unclassified candidates, 144 were moved
-(104 swarm, 13 comb, 27 family), one was held, and six were kept. The six
-comprise five apparent fragments of known pulsars that `classify_known.py`
-missed on too tight a frequency tolerance, all offset by about 0.16 Hz from
-their parent, and one candidate at 938.45 Hz whose nearest catalogue
-harmonic is almost 4 Hz away.
+The earlier safety check was also used to choose the family tolerance:
+a 0.6 Hz window caught the 2/3 harmonic of J0024-7204ah at 217.155 Hz,
+whereas 0.4 Hz avoided that overlap. In the advisory version, frequency
+flags can be recorded even for known pulsars, without rejecting them.
 
-**The parameters are specific to this dataset.** The swarm window is the
-measured extent of one interference feature in this observation, not a
-physical scale, and it must be re-derived for other data. The rules encode
-what was found here, not a general RFI taxonomy.
-
-**Two notes on the rules as written.**
-
-The 650 Hz entry in the family list is redundant and slightly wrong. Fitted
-frequencies for those candidates sit at 649.982 Hz, which is 650.000 with
-the barycentric shift applied, matching the comb rather than the third
-harmonic of 216.68 Hz that the family list predicts. The comb rule fires
-first in any case, so the outcome is unaffected.
-
-The strongest argument against the swarm is sharpness, not count. Genuine
-comb lines are sharp: one candidate each, with fitted frequencies scattering
-by well under one part in a hundred thousand. The 1 kHz feature spans
-0.12 Hz across 32 fitted candidates, running continuously through the round
-value with no gap. A rotating object has one frequency. That smear does not.
-
+Two observations from that run help interpret these windows. Candidates
+near 650 Hz had fitted frequencies around 649.982 Hz, consistent with a
+650 Hz comb line after the barycentric shift, rather than an exact third
+harmonic of 216.68 Hz. The comb rule is evaluated first. The 1 kHz feature
+also spread across about 0.12 Hz among 32 fitted candidates, unlike the
+sharper comb lines. These are clues about the interference in this dataset,
+not independent proof that every candidate inside a window is terrestrial.
 
 ### Stage 4: Folding
 
@@ -444,9 +416,8 @@ Runs `collate_fold_snr.py`, which calls `psrstat` (PSRCHIVE) on all folded `.ar`
 | False alarm rate | 0.1 per subband | `--false-alarm-rate` in Stage 3a |
 | Dedup tolerance | 0.035 Hz (set explicitly) | `--dedup-tol-hz`; do not rely on the auto default, see Stage 3a warning |
 | Tail percentile | 95 | `--tail-percentile`; script default is 99.99 |
-| Swarm window | 990 to 1010 Hz | `SWARM_LO`, `SWARM_HI` in `flag_rfi.py`; dataset-specific |
-| Comb tolerance | 0.05 Hz on multiples of 25 Hz | `COMB_TOL`, `COMB_SPACING` in `flag_rfi.py` |
-| Family tolerance | 0.4 Hz | `FAM_TOL` in `flag_rfi.py`; set by the control-group safety check |
+
+RFI thresholds are listed in the [Stage 3c table](#stage-3c-rfi-flags-and-candidate-retention).
 
 ---
 
@@ -533,22 +504,19 @@ the set includes RFI, re-detections of known pulsars, and harmonics of known
 pulsars, as well as any genuinely new candidates. Stage 3b is deliberately
 unselective, so that nothing is discarded before it has a diagnostic plot.
 
-Filtering happens afterwards, in Stage 3c. `flag_rfi.py` moves candidates
-matching the interference rules into `candidates_rfi/` and records why in
-`rfi_flags.csv`. Nothing is deleted, so a veto can be reversed by moving the
-folder back. After Stage 3c, `candidates/` holds only the known pulsars, any
-candidate held near a catalogue harmonic, and the genuinely unexplained.
-That reduced set is what goes forward to folding.
+Use the [Stage 3c flags](#stage-3c-rfi-flags-and-candidate-retention) to guide
+inspection. The 415-candidate comparison retains all selected candidates
+for folding; the earlier folder-separation results are documented there
+as historical results.
 
 Because the numbering follows row order in `candidates_dedup.csv`, the `cand_NNN` indices are not stable across aggregation runs. Re-running Stage 3a with different settings renumbers every candidate. Refer to candidates by frequency and parent pulsar in any writing that needs to outlive a single run.
 To assess whether a candidate is a real new pulsar:
 
 1. Check `classification` in `classified.csv` (see below). Do not rely on the known_match column of `candidates_dedup.csv`: it flags only exact frequency coincidences with a known pulsar and misses harmonics entirely. A candidate at twice a known pulsar's `F0` has an empty known_match and will otherwise pass straight through as if it were new.
-2. Check `verdict` in `rfi_flags.csv`. A candidate marked `hold_near_known`
-   sits inside an RFI veto window but close to a catalogue harmonic, and was
-   spared for exactly that reason. It needs a decision rather than a default.
-   Candidates already moved to `candidates_rfi/` carry their reason in
-   `rfi_manifest.csv`.
+2. Check `rfi_flag` and `verdict` in `rfi_flags.csv`, using the
+   [Stage 3c explanation](#stage-3c-rfi-flags-and-candidate-retention).
+   Inspect possible RFI and catalogue-harmonic coincidences rather than
+   accepting or rejecting a candidate from a flag alone.
 3. Check `dm_count`. A real pulsar should peak in significance at or near the cluster DM (~24.36 pc/cm^3) and be recovered across multiple DM trials. Detections at only one DM trial are suspect.
 4. Check `multiplicity`. A real pulsar should appear in multiple subbands and ideally multiple `Nt` values.
 5. Inspect the folded `.ar` file. A real pulsar shows a coherent pulse profile and dispersion sweep consistent with the cluster DM.
