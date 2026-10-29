@@ -1,16 +1,16 @@
 # 47 Tuc: HMM search reproducibility
 
-This repository contains the code and small fixed inputs for the targeted
-redetection of 47 Tuc O and the blind HMM/Viterbi search of the MeerKAT
-observation. It does not contain the observation itself, generated results,
-exploratory runs, software regression tests or PRESTO benchmarking work.
-Those files remain on the cluster.
+This repository contains the code, small fixed inputs and three candidate
+diagnostic PDFs for the targeted redetection of 47 Tuc O and the blind
+HMM/Viterbi search of the MeerKAT observation. The observation itself, other
+generated results, exploratory runs, software regression tests and PRESTO
+benchmarking work remain on the cluster.
 
 The search code includes the corrections made in October 2026: exact segment
 counts after removing PRESTO padding, consistent FFT frequency labels, and
-candidate alternatives retained separately at each timescale. The corrected
-observation search has not yet been rerun. Existing paper figures and candidate
-counts must therefore be distinguished from results of the corrected code.
+candidate alternatives retained separately at each timescale. Corrected runs use a new `blind_v2` output tree and frozen source copies.
+Existing paper figures and candidate counts describe the historical run until
+regenerated and verified.
 
 ## What is included
 
@@ -94,12 +94,76 @@ identifies a row's timescale; it is not a comparison of raw scores between
 timescales. The threshold formula is unchanged, and its nominal false alarm
 probabilities in correlated observation data still need validation.
 
-Classify the new table with `classify_known.py` before follow-up. Its
-row-indexed classification file must correspond to that exact table.
-`stage3b_fit.sh` uses `classified_timescale_alternatives.csv` in its new
-follow-up output folder. Do not reuse the old 194-row classification or array
+Every selected candidate has an informative `candidate_id`, for example
+`cand_000123_DM24.40_Nt32_f378.307411Hz_sb374.000_bary`. The ordinal is
+fixed within the frozen candidate manifest; it is not a cross-run identifier.
+`candidate_members.csv` maps every above-threshold local peak to its group,
+including source curve, frequency bin and parameters. The representative's
+DM/Nt/subband are retained. Nearby DM/subband peaks may still be grouped
+within Nt; the complete raw table and group membership remain available.
+Local-peak separation is one bin, avoiding the historical five-bin suppression.
+The outermost bin of each curve is not treated as an interior local maximum;
+the overlapping subbands cover interior band boundaries.
+
+`make_search_grid.py` freezes the expected grid. Its `--validate-results`
+mode checks every timing and sampling record before aggregation.
+`aggregate_blind.py` requires `--expected-curves`, `--expected-grid` and
+`--run-id`, fails on incomplete/unreadable curves or failed thresholds, and
+refuses to overwrite a frozen candidate manifest. The observation rerun uses
+`--tail-percentile 95 --false-alarm-rate 0.1 --dedup-tol-hz 0.035`, retaining
+the historical threshold prescription without claiming a calibrated false
+alarm probability for correlated trials.
+
+Classify the new table with `classify_known.py` before follow-up. It preserves
+all candidate IDs, provenance and frequency precision. Its classification
+file must correspond to that exact table.
+`stage3b_fit.sh` uses `classified_timescale_alternatives.csv` in the
+`stage3_viterbi/candidates/` folder. Do not reuse the old 194-row classification or array
 bounds. Set submission array sizes from the current grid/table and respect
 the cluster's array-size limit.
+
+## Candidate diagnostic plots
+
+The following PDFs contain the 415 selected HMM candidates from the saved
+`47Tuc_blind_search_v1/stage4_fold/comparison_v1/hmm/` comparison. Each PDF
+has one page per candidate, in the same order, with bookmarks for navigation.
+These are snapshots restored from the saved search arrays and model fits;
+adding them here does not rerun the search or update the fits. They are
+separate from the corrected `blind_v2` production rerun described above.
+
+| Plot collection | Contents |
+|---|---|
+| [Spectrograms with fits](docs/plots/hmm_candidate_review/01_spectrograms_with_fits.pdf) | Time-frequency maps with the Viterbi track, polynomial fit and circular Kepler fit. |
+| [Likelihoods with thresholds](docs/plots/hmm_candidate_review/02_likelihoods_with_thresholds.pdf) | Full source-subband ending-state score curves, selection thresholds, selected endpoints and local peak insets. |
+| [Plain likelihoods over 2 Hz](docs/plots/hmm_candidate_review/03_plain_likelihoods_2Hz.pdf) | Score curves within 1 Hz of each selected endpoint, clipped to the original subband, without thresholds, markers or insets. |
+
+The model overlays are diagnostic fits. In particular, a circular Kepler
+curve is not a validated orbital solution.
+
+### RFI flags in the plot titles
+
+The RFI flags are automatic frequency-based warnings, not confirmed RFI
+classifications. The thresholds below use the candidate's selected
+`peak_freq_hz`, which is the final Viterbi-track frequency in these plots.
+These are barycentric search frequencies in Hz, not receiver subband
+frequencies in MHz. The rules do not assess the fold or its DM dependence.
+
+| Flag | What triggers it | Why it was flagged |
+|---|---|---|
+| `rfi_swarm` | Frequency between 990 and 1010 Hz, inclusive. | A crowded region around 1 kHz where interference generated many similar candidates. |
+| `rfi_comb` | Within 0.05 Hz of a multiple of 25 Hz. | Possible association with regularly spaced interference tones, such as 75, 100 or 125 Hz. |
+| `rfi_family` | Within 0.4 Hz of 216.68, 433.357, 650.03 or 866.71 Hz. | Near a previously identified interference family and its harmonics. |
+| `none` | None of these frequency rules matched. | No warning from these rules; this does not establish that the candidate is free of RFI. |
+
+The rules are applied in the order swarm, comb, then family, and the first
+match supplies the label. **Retained** means the candidate was kept for
+inspection and folding despite its flag. Every selected candidate was
+retained, including flagged candidates and known pulsars. A flag alone is
+not a reason to reject a candidate; DM-zero comparisons and folding provide
+additional evidence.
+
+The thresholds and retention policy are defined in
+[`flag_rfi.py`](code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/flag_rfi.py).
 
 ## Before a new production run
 
@@ -110,8 +174,8 @@ site-specific paths and the scientific run configuration before submission:
 - Check that targeted inputs are topocentric and blind-search inputs are the
   intended cleaned, barycentred DM series.
 - Set the same corrected candidate directory and table in the later folding,
-  collation and inspection steps. Some launcher defaults still refer to the
-  historical `candidates/` directory.
+  collation and inspection steps. The defaults now use
+  `stage3_viterbi/candidates/` and its frozen table throughout.
 - `stage1b_bandpass_diagnostic.sh` currently names
   `stage1_clean_postprocess.py`; the included implementation is
   `stage1c_clean_postprocess.py`. Update that path before using the wrapper,
@@ -130,9 +194,36 @@ explicitly included. This applies to new Python and shell files too. Local
 tests, alternate ephemerides, `simulate_dataset/`, `code/tests/`,
 `psr_miner_search/`, logs, backup packages, observation files and generated
 outputs stay on the cluster and are excluded from new commits by default.
+The three candidate diagnostic PDFs linked above are explicit exceptions;
+other files under `docs/` remain ignored unless individually allowed.
 
 To include another file, add its exact path and any missing parent-directory
 exceptions to `.gitignore`, then inspect `git status` and the staged diff.
 Avoid `git add -f`, which bypasses this policy. Files removed from tracking
 by this cleanup are still on disk. Earlier public commits retain their old
 contents; no published history has been rewritten.
+
+## Retention and timing in the corrected rerun
+
+`flag_rfi.py` reports every selected candidate, including known pulsars, and
+records advisory frequency flags. It has no move action. All selected
+candidates remain eligible for fitting and folding. These frequency
+heuristics alone do not establish that a signal is terrestrial.
+`collate_fold_snr.py` joins by candidate ID and retains missing/failed folds
+with an explicit status. `select_coherent_candidates.py` writes every
+selected candidate, including missing or unreadable tracks. Path variability
+is descriptive; it is not by itself a binary classification. There is no
+cross-timescale raw-likelihood ranking or top-30 exclusion.
+
+Freeze the source and grid before submitting `stage3_batch.sh`. Set
+`SEARCH_CODE_DIR`, `SEARCH_OUTPUT_BASE`, `SEARCH_GRID_SIZE` and optionally
+`SEARCH_CONFIGS_PER_WORKER` (default 16). For 16,464 configurations this gives
+1,029 workers, submitted as `--array=0-1028%16`. Each worker runs its
+configurations serially on one CPU. This stays below the site's array and
+pending-job limits. `stage3_blind.sh` remains the one-configuration launcher.
+Both write a separate `_timing.json` per search through `measure_search.py`.
+The record includes complete command wall/CPU time, peak memory, CPU model,
+affinity, thread settings, return status and source/parameter hashes.
+Dedispersion and candidate follow-up are excluded from this search timer.
+Sum CPU times over the complete grid and report scheduler elapsed time
+separately. Retain and report any hardware differences.

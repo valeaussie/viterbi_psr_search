@@ -58,3 +58,16 @@
 !/code/viterbi.py
 !/code/viterbi_pipeline.py
 !/code/viterbi_search_and_fit.py
+
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/measure_search.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/stage3_batch.sh
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/make_search_grid.py
+!/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/stage3_aggregate.sh
+
+# Candidate diagnostic PDFs linked from README.md.
+!/docs/
+!/docs/plots/
+!/docs/plots/hmm_candidate_review/
+!/docs/plots/hmm_candidate_review/01_spectrograms_with_fits.pdf
+!/docs/plots/hmm_candidate_review/02_likelihoods_with_thresholds.pdf
+!/docs/plots/hmm_candidate_review/03_plain_likelihoods_2Hz.pdf
