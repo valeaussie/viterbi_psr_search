@@ -1,0 +1,20 @@
+ Data file name without suffix          =  47TucO_redetect_cfbf00000_Plan1_1_DM24.36
+ Telescope used                         =  MeerKAT
+ Instrument used                        =  Unknown
+ Object being observed                  =  J0024-7204O
+ J2000 Right Ascension (hh:mm:ss.ssss)  =  00:24:04.65
+ J2000 Declination     (dd:mm:ss.ssss)  =  -72:04:53.80
+ Data observed by                       =  Unknown
+ Epoch of observation (MJD)             =  59391.125996527684038
+ Barycentered?           (1=yes, 0=no)  =  0
+ Number of bins in the time series      =  188026156
+ Width of each time series bin (sec)    =  0.00007656074766355
+ Any breaks in the data? (1=yes, 0=no)  =  0
+ Type of observation (EM band)          =  Radio
+ Beam diameter (arcsec)                 =  0.00
+ Dispersion measure (cm-3 pc)           =  24.35644100000000023
+ Central freq of low channel (Mhz)      =  858.92578125000000000
+ Total bandwidth (Mhz)                  =  856.00000000000000000
+ Number of channels                     =  128
+ Channel bandwidth (Mhz)                =  6.74015748031496020
+ Data analyzed by                       =  PulsarX

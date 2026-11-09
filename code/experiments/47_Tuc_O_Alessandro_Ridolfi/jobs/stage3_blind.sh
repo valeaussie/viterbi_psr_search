@@ -1,4 +1,5 @@
 #!/bin/bash
+set -eo pipefail
 #SBATCH --job-name=stage3_blind
 #SBATCH --output=/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/slurm_outputs/slurm-blind-%A_%a.out
 #SBATCH --error=/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/slurm_outputs/slurm-blind-%A_%a.err
@@ -44,14 +45,18 @@
 SETUP="/fred/oz022/vdimarco/software/envrmnts/setup_viterbi_psr.sh"
 CODE_DIR="/fred/oz022/vdimarco/software/install/viterbi_psr_search/code"
 JOBS_DIR="${CODE_DIR}/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs"
-VITERBI="${CODE_DIR}/viterbi_pipeline.py"
+SOURCE_CODE="${SEARCH_CODE_DIR:-${CODE_DIR}}"
+VITERBI="${SOURCE_CODE}/viterbi_pipeline.py"
+MEASURE="${SOURCE_CODE}/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs/measure_search.py"
+RUN_SRUN=$(command -v srun)
 EXP_DIR="${CODE_DIR}/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1"
 
+JOBS_DIR="${SOURCE_CODE}/experiments/47_Tuc_O_Alessandro_Ridolfi/jobs"
 DM_LIST="${JOBS_DIR}/dm_list.txt"
 NT_LIST_FILE="${JOBS_DIR}/nt_list.txt"
 
 ROOTNAME="47Tuc"
-OUT_BASE="${EXP_DIR}/stage3_viterbi/blind_v1"
+OUT_BASE="${SEARCH_OUTPUT_BASE:-${EXP_DIR}/stage3_viterbi/blind_v2}"
 
 # Observation parameters (read from .inf at runtime per DM; kept here as
 # fallback reference only -- tsamp and mjd_start are read from the .inf)
@@ -63,7 +68,7 @@ DFB=10.0     # subband width (Hz)
 STEP=9.0     # subband step  (Hz; 1 Hz overlap)
 
 # ----------------------------------------------------------------------------
-IDX=$(( SLURM_ARRAY_TASK_ID + ${IDX_OFFSET:-0} ))
+IDX=${SEARCH_GRID_INDEX:-$(( SLURM_ARRAY_TASK_ID + ${IDX_OFFSET:-0} ))}
 
 echo "Start (UTC):  $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "Host:         $(hostname)"
@@ -140,6 +145,9 @@ echo "  Requested Nt = ${NT}; Tsft will use valid samples in Python"
 F0_FMT=$(printf "%.3f" "${F0_SUB}")
 OUT_DIR="${OUT_BASE}/${DM_TAG}/Nt${NT}/f0_${F0_FMT}"
 mkdir -p "${OUT_DIR}"
+if [ -e "${OUT_DIR}/blind_Nt${NT}_f0_${F0_FMT}_timing.json" ]; then
+    echo "Existing measured run; refuse overwrite: ${OUT_DIR}" >&2; exit 1
+fi
 OUT_PREFIX="${OUT_DIR}/blind_Nt${NT}_f0_${F0_FMT}"
 
 # --- environment ------------------------------------------------------------
@@ -168,7 +176,10 @@ PARAMEOF
 # --- run Viterbi (lean mode) ------------------------------------------------
 echo ""
 echo "Running viterbi_pipeline.py --lean ..."
-python "${VITERBI}" --params "${PARAMS}" --lean
+export OMP_NUM_THREADS=1 OMP_DYNAMIC=FALSE OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 MPLBACKEND=Agg
+export MPLCONFIGDIR="${OUT_DIR}/.mplcache"
+"${RUN_SRUN}" --cpu-bind=cores python "${MEASURE}" --out "${OUT_PREFIX}_timing.json" -- \
+    python "${VITERBI}" --params "${PARAMS}" --lean
 
 echo ""
 echo "=== task ${IDX} (${DM_TAG} Nt${NT} f0_${F0_FMT}) complete ==="

@@ -67,6 +67,8 @@ Usage
 """
 
 import argparse
+import csv
+import hashlib
 import glob
 import json
 import os
@@ -200,7 +202,7 @@ def compute_dedup_tolerance(nt_tsft_pairs, n_dedup_bins):
 # Peak finding
 # ---------------------------------------------------------------------------
 
-def find_peaks(freqs, loglike, loglike_threshold, min_separation_bins=5):
+def find_peaks(freqs, loglike, loglike_threshold, min_separation_bins=1):
     """
     Return list of (peak_freq_hz, peak_loglike, threshold) tuples for all
     local maxima that exceed loglike_threshold.
@@ -304,6 +306,7 @@ def dedup_candidates(rows, freq_tol_hz):
         for c in clusters:
             if r["Nt"] == c["Nt_best"] and abs(f - c["peak_freq_hz"]) <= freq_tol_hz:
                 c["multiplicity"] += 1
+                c["members"].append(r)
                 c["nt_set"].add(r["Nt"])
                 c["dm_set"].add(r["dm"])
                 if not c["known_match"] and r["known_match"]:
@@ -320,6 +323,11 @@ def dedup_candidates(rows, freq_tol_hz):
                 "threshold":    r["threshold"],
                 "known_match":  r["known_match"],
                 "multiplicity": 1,
+                "members": [r],
+                "representative_peak_id": r.get("peak_id", ""),
+                "source_curve": r.get("source_curve", ""),
+                "source_params": r.get("source_params", ""),
+                "source_bin": r.get("source_bin", ""),
                 "nt_set":       {r["Nt"]},
                 "dm_set":       {r["dm"]},
             })
@@ -343,10 +351,10 @@ def dedup_candidates(rows, freq_tol_hz):
 # ---------------------------------------------------------------------------
 
 def write_csv(path, cols, rows):
-    with open(path, "w") as fh:
-        fh.write(",".join(cols) + "\n")
-        for r in rows:
-            fh.write(",".join(str(r.get(c, "")) for c in cols) + "\n")
+    with open(path, "w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=cols, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +385,14 @@ def main():
 
     # Cross-match
     ap.add_argument("--match-tol-hz", type=float, default=0.05)
+    ap.add_argument("--expected-curves", type=int, required=True,
+                    help="Fail rather than aggregate a partial search grid.")
+    ap.add_argument("--expected-grid", required=True,
+                    help="Frozen grid_manifest.json with expected relative curve paths.")
+    ap.add_argument("--run-id", required=True)
     args = ap.parse_args()
+    if os.path.exists(os.path.join(args.out_dir, "candidate_manifest.json")):
+        raise FileExistsError("Candidate manifest already frozen; use a new output directory")
 
     os.makedirs(args.out_dir, exist_ok=True)
 
@@ -385,8 +400,14 @@ def main():
     files = sorted(glob.glob(pattern, recursive=True))
     if not files:
         print(f"No *_loglike_curve.dat files found under {args.blind_dir}")
-        return
+        raise RuntimeError("No curves found")
 
+    with open(args.expected_grid) as fh:
+        expected = {r["curve"] for r in json.load(fh)["tasks"]}
+    actual = {os.path.relpath(p, args.blind_dir) for p in files}
+    if len(files) != args.expected_curves or actual != expected:
+        raise ValueError(f"Incomplete/extra grid: found {len(files)}, expected "
+                         f"{args.expected_curves}; missing={len(expected-actual)}, extra={len(actual-expected)}")
     known = load_known_pulsars(args.known_yaml)
     print(f"Loaded {len(known)} known pulsars with F0.")
     print(f"Found {len(files)} loglike curve files.")
@@ -419,15 +440,16 @@ def main():
             n_skipped += 1
             continue
 
+        if dm is None or f0_sub is None or not np.isfinite(arr).all() or np.any(np.diff(freqs) <= 0):
+            raise ValueError(f"Invalid metadata or curve: {path}")
         groups[nt].append((path, freqs, loglike, dm, f0_sub))
         nt_tsft_pairs.append((nt, tsft))
 
     if not groups:
-        print("ERROR: no usable loglike curves found.")
-        return
+        raise ValueError("No usable loglike curves; refusing partial aggregation")
 
     if n_skipped:
-        print(f"  ({n_skipped} files skipped)")
+        raise ValueError(f"Refusing partial aggregation: {n_skipped} unusable curves")
 
     nt_values_found = sorted(groups.keys())
     total_curves = sum(len(v) for v in groups.values())
@@ -458,8 +480,7 @@ def main():
                 f"N_T_max={max_nt}, T_obs={t_obs:.1f} s)"
             )
         except ValueError as exc:
-            print(f"\nERROR computing dedup tolerance: {exc}")
-            return
+            raise ValueError(f"Cannot compute dedup tolerance: {exc}") from exc
 
     print(f"\nDeduplication tolerance: {dedup_tol_hz:.5f} Hz  [{dedup_source}]")
 
@@ -488,8 +509,7 @@ def main():
                 tail_percentile=args.tail_percentile,
             )
         except ValueError as exc:
-            print(f"  Nt={nt}: skipping threshold ({exc})")
-            continue
+            raise ValueError(f"Threshold failed at Nt={nt}: {exc}") from exc
 
         print(f"  Nt={nt:>4d}: {n_curves_nt:>5d} curves  "
               f"N_Q={n_q_median}  "
@@ -507,7 +527,16 @@ def main():
             peaks = find_peaks(freqs, loglike, l_th)
             for (pf, pl, thr) in peaks:
                 match = match_known(pf, known, args.match_tol_hz)
+                source_curve = os.path.relpath(path, args.blind_dir)
+                source_bin = int(np.argmin(np.abs(freqs - pf)))
+                peak_id = hashlib.sha256(f"{args.run_id}|{source_curve}|{source_bin}".encode()).hexdigest()
                 all_rows.append({
+                    "peak_id": peak_id,
+                    "source_curve": source_curve,
+                    "source_params": source_curve.replace("_loglike_curve.dat", ".params"),
+                    "source_bin": source_bin,
+                    "run_id": args.run_id,
+                    "frame": "bary",
                     "dm":           dm,
                     "Nt":           nt,
                     "subband_f0":   f0_sub,
@@ -523,7 +552,7 @@ def main():
     # ------------------------------------------------------------------
     # Write candidates_raw.csv
     # ------------------------------------------------------------------
-    raw_cols = ["dm", "Nt", "subband_f0", "peak_freq_hz",
+    raw_cols = ["peak_id", "run_id", "frame", "source_curve", "source_params", "source_bin", "dm", "Nt", "subband_f0", "peak_freq_hz",
                 "peak_loglike", "threshold", "known_match"]
     raw_csv = os.path.join(args.out_dir, "candidates_raw.csv")
     write_csv(raw_csv, raw_cols, all_rows)
@@ -539,7 +568,22 @@ def main():
     # ------------------------------------------------------------------
     clusters = dedup_candidates(all_rows, dedup_tol_hz)
 
-    dedup_cols = [
+    memberships = []
+    for index, c in enumerate(clusters):
+        c["candidate_id"] = (f"cand_{index:06d}_DM{c['dm_best']:.2f}_Nt{c['Nt_best']}"
+                             f"_f{c['peak_freq_hz']:.6f}Hz_sb{c['subband_f0']:.3f}_bary")
+        c["cand_id"] = c["candidate_id"]
+        c["cand_index"] = index
+        c["run_id"] = args.run_id
+        c["frame"] = "bary"
+        for member in c.pop("members"):
+            memberships.append(dict(member, candidate_id=c["candidate_id"]))
+    assert len(memberships) == len(all_rows) == sum(c["multiplicity"] for c in clusters)
+    assert len({m["peak_id"] for m in memberships}) == len(all_rows)
+    assert {m["peak_id"] for m in memberships} == {r["peak_id"] for r in all_rows}
+    write_csv(os.path.join(args.out_dir, "candidate_members.csv"), ["candidate_id"] + raw_cols, memberships)
+    dedup_cols = ["candidate_id", "cand_id", "cand_index", "run_id", "frame",
+        "representative_peak_id", "source_curve", "source_params", "source_bin",
         "peak_freq_hz", "peak_loglike",
         "dm_best", "dm_count", "dm_values",
         "multiplicity", "nt_values", "Nt_best",
@@ -548,6 +592,12 @@ def main():
     dedup_csv = os.path.join(args.out_dir, "candidates_timescale_alternatives.csv")
     write_csv(dedup_csv, dedup_cols, clusters)
 
+    with open(os.path.join(args.out_dir, "candidate_manifest.json"), "w") as fh:
+        json.dump(dict(run_id=args.run_id, frame="bary", candidate_count=len(clusters),
+            raw_peak_count=len(all_rows), candidate_ids=[c["candidate_id"] for c in clusters],
+            source_grid=os.path.abspath(args.expected_grid), curve_count=len(files),
+            parameters=vars(args), min_separation_bins=1, rfi_policy="flag_only",
+            table_sha256=hashlib.sha256(open(dedup_csv,"rb").read()).hexdigest()), fh, indent=2)
     n_known_d = sum(1 for c in clusters if c["known_match"])
     known_names = sorted({c["known_match"] for c in clusters if c["known_match"]})
     print(f"\nWrote {dedup_csv}")

@@ -1,0 +1,52 @@
+{
+  "search_index": 10,
+  "dm": "24.30",
+  "segments": 36,
+  "initial_sigma": 22.3,
+  "initial_model": "kepler_taylor",
+  "coherence_s": 399.9947651588785,
+  "initial_fold": {
+    "index": 10,
+    "dm": "24.30",
+    "segments": 36,
+    "search_complete": true,
+    "model": "kepler_taylor",
+    "fold_complete": true,
+    "coherence_s": 399.9947651588785,
+    "endpoint_hz": 378.3044353858963,
+    "score": 574.6961403334592,
+    "sigma": 22.3,
+    "transfer_passed": true,
+    "wall_s": 1309.6249803069513,
+    "refined_dm": "24.381",
+    "png": "/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1/redetect_O_J_matched_20261105/viterbi_out/DM24.30_Nt36/native_followup/kepler_taylor/presto_kepler_taylor_f0_f5_PSR_OTG000010.pfd.png",
+    "pdf": "/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1/redetect_O_J_matched_20261105/viterbi_out/DM24.30_Nt36/native_followup/kepler_taylor/presto_kepler_taylor_f0_f5_PSR_OTG000010.pfd.pdf"
+  },
+  "best_polynomial_candidate": {
+    "index": 22,
+    "dm": "24.40",
+    "segments": 30,
+    "search_complete": true,
+    "model": "polynomial",
+    "fold_complete": true,
+    "coherence_s": 479.99377943925236,
+    "endpoint_hz": 378.3044353858963,
+    "score": 562.1802752470077,
+    "sigma": 30.0,
+    "transfer_passed": true,
+    "wall_s": 1308.1183299190598,
+    "refined_dm": "24.373",
+    "png": "/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1/redetect_O_J_matched_20261105/viterbi_out/DM24.40_Nt30/native_followup/polynomial/presto_polynomial_f0_f5_PSR_OTG000022.pfd.png",
+    "pdf": "/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1/redetect_O_J_matched_20261105/viterbi_out/DM24.40_Nt30/native_followup/polynomial/presto_polynomial_f0_f5_PSR_OTG000022.pfd.pdf"
+  },
+  "selection_reason": "Same J comparison: use the strongest reviewed orbit-Taylor fold, retain its saved circular fit, and replace only its full-observation Taylor approximation by the complete repeating curve. The independent polynomial maximum is retained separately.",
+  "diagnostic_review": "Pulsed signal with radio-band support and localized DM response near 24.4; residual time-dependent pulse drift remains. No published orbital timing parameters used.",
+  "reviewed_png_sha256": {
+    "/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1/redetect_O_J_matched_20261105/viterbi_out/DM24.30_Nt36/native_followup/kepler_taylor/presto_kepler_taylor_f0_f5_PSR_OTG000010.pfd.png": "8d4d8da3c3192e90d4c40e83e05f185c6348c0491378da7993f5853125d09449",
+    "/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1/redetect_O_J_matched_20261105/viterbi_out/DM24.40_Nt30/native_followup/polynomial/presto_polynomial_f0_f5_PSR_OTG000022.pfd.png": "df7dc27b6ad11ff7b5751d7a38cc458f8b4bd7520d2330f814dc534e04544bf1",
+    "/fred/oz022/vdimarco/software/install/viterbi_psr_search/code/experiments/47_Tuc_O_Alessandro_Ridolfi/47Tuc_blind_search_v1/redetect_O_J_matched_20261105/viterbi_out/DM24.30_Nt30/native_followup/polynomial/presto_polynomial_f0_f5_PSR_OTG000005.pfd.png": "172c93c0d0a3bc66693e709ea5b70ec73af1676a1a033d93931e290e09bd0917"
+  },
+  "utc": "2026-11-05T02:47:43.865658+00:00",
+  "published_timing_model_used": false,
+  "table_changed": false
+}

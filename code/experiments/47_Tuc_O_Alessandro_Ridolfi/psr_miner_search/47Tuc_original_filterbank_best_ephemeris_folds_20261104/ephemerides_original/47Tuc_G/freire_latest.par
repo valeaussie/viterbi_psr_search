@@ -1,0 +1,30 @@
+PSR              J0024-7204G
+RAJ      00:24:07.96025340  1          0.00014901
+DECJ     -72:04:39.7029769  1           0.0004844
+PMRA                4.4997  1              0.1375
+PMDEC              -2.9121  1              0.1417
+PX                  0.2132
+F0    247.5015250963851088  1  0.0000000000082635
+F1      2.582534372342D-15  1  1.398109499384D-19
+F2      6.019012846411D-27  1  9.407044133871D-28
+PEPOCH        51600.000000
+START            48600.489
+FINISH           56466.879
+DM               24.435837  1            0.004052
+SOLARN0              10.00
+EPHEM               DE421
+CLK                 UTC(NIST)                       
+UNITS               TDB
+TIMEEPH             FB90
+T2CMETHOD           TEMPO
+CORRECT_TROPOSPHERE N
+PLANET_SHAPIRO      N
+DILATEFREQ          N
+NTOA                   594
+TRES                 11.25
+TZRMJD  51818.69122040599641
+TZRFRQ            1373.500
+TZRSITE                  7
+MODE                     1
+NITS                     1
+IBOOT                   12

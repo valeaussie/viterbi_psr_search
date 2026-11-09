@@ -97,10 +97,10 @@ def main():
                 cls = "known_main"; ratio_s = "1"; n_main += 1
             else:
                 cls = "known_harmonic"; ratio_s = f"{fr.numerator}/{fr.denominator}"; n_harm += 1
-        out_rows.append({
+        out_rows.append(dict(r, **{
             "cand_index": i,
-            "peak_freq_hz": f"{f:.6f}",
-            "dm_best": f"{dm:.3f}",
+            "peak_freq_hz": r["peak_freq_hz"],
+            "dm_best": r["dm_best"],
             "classification": cls,
             "parent_pulsar": parent,
             "harmonic_ratio": ratio_s,
@@ -110,11 +110,14 @@ def main():
             "freq_residual_hz": f"{dfr:.4f}" if dfr != "" else "",
             "dm_residual": f"{ddm:.3f}" if ddm not in ("", None) else "",
             "n_ambiguous": namb,
-        })
+        }))
 
     cols = ["cand_index","peak_freq_hz","dm_best","classification","parent_pulsar",
             "harmonic_ratio","parent_f0_hz","parent_dm","predicted_freq_hz",
             "freq_residual_hz","dm_residual","n_ambiguous"]
+    cols = list(dict.fromkeys((list(rows[0]) if rows else []) + cols))
+    assert len(out_rows) == len(rows)
+    assert [r.get("candidate_id") for r in out_rows] == [r.get("candidate_id") for r in rows]
     with open(args.out, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols); w.writeheader()
         for r in out_rows: w.writerow(r)
